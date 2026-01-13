@@ -1,0 +1,38 @@
+{
+  "name": "document-dataply",
+  "version": "0.0.1",
+  "description": "",
+  "license": "MIT",
+  "author": "izure <admin@izure.org>",
+  "type": "commonjs",
+  "main": "./dist/cjs/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "require": "./dist/cjs/index.js",
+      "import": "./dist/cjs/index.js"
+    }
+  },
+  "files": [
+    "dist/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/izure1/document-dataply.git"
+  },
+  "scripts": {
+    "test": "jest -i",
+    "build": "node build/index.js && tsc"
+  },
+  "dependencies": {
+    "dataply": "^0.0.14"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "esbuild": "^0.27.2",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
+  }
+}
