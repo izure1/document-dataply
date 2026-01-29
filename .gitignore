@@ -2,3 +2,6 @@
 /insert.ts
 /node_modules
 /select.ts
+/test/*
+!/test/**/
+!/test/**/*.ts

@@ -19,6 +19,6 @@ export class DocumentValueComparator<T extends DataplyTreeValue<U>, U extends Pr
   }
 
   match(value: T): string {
-    return value.k + ''
+    return value.v + ''
   }
 }
