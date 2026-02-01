@@ -25,7 +25,13 @@ describe('DocumentDataply Query Operators', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = new DocumentDataply(dbPath)
+    db = new DocumentDataply(dbPath, {
+      indecies: {
+        score: true,
+        category: true,
+        active: true,
+      }
+    })
     await db.init()
     await initData()
   })

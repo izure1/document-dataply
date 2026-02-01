@@ -23,7 +23,18 @@ describe('DocumentDataply Basic CRUD', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = new DocumentDataply(dbPath)
+    db = new DocumentDataply(dbPath, {
+      indecies: {
+        name: true,
+        age: true,
+        city: true,
+        'user.profile.nickname': true,
+        'user.profile.level': true,
+        'tags.0': true,
+        'tags.1': true,
+        'tags.5': true,
+      }
+    })
     await db.init()
   })
 

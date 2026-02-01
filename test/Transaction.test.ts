@@ -14,7 +14,11 @@ describe('DocumentDataply Transaction', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = new DocumentDataply(dbPath)
+    db = new DocumentDataply(dbPath, {
+      indecies: {
+        name: true,
+      }
+    })
     await db.init()
   })
 

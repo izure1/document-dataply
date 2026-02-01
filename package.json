@@ -26,7 +26,7 @@
     "build": "node build/index.js && tsc"
   },
   "dependencies": {
-    "dataply": "^0.0.17-alpha.1"
+    "dataply": "^0.0.17"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

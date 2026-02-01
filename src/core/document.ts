@@ -1,9 +1,8 @@
 import type { DataplyTreeValue, DocumentDataplyInnerMetadata, DocumentDataplyOptions, DocumentJSON, FlattenedDocumentJSON, Primitive, DocumentDataplyQuery, FinalFlatten, DocumentDataplyCondition, DataplyDocument, DocumentDataplyMetadata } from '../types'
-import { DataplyAPI, Transaction, BPTreeAsync, type BPTreeCondition, BPTreeAsyncTransaction } from 'dataply'
+import { DataplyAPI, Transaction, BPTreeAsync, type BPTreeCondition, BPTreeAsyncTransaction, Ryoiki } from 'dataply'
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
-
-
+import { catchPromise } from '../utils/catchPromise'
 
 export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   declare runWithDefault
@@ -11,10 +10,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   indecies: DocumentDataplyInnerMetadata['indecies'] = {}
   readonly trees: Map<string, BPTreeAsync<number, DataplyTreeValue<Primitive>>> = new Map()
   readonly comparator = new DocumentValueComparator()
+  private pendingBackfillFields: string[] = []
+  private readonly lock: Ryoiki
 
   constructor(file: string, options: DocumentDataplyOptions) {
     super(file, options)
     this.trees = new Map()
+    this.lock = new Ryoiki()
     this.hook.onceAfter('init', async (tx, isNewlyCreated) => {
       if (isNewlyCreated) {
         await this.initializeDocumentFile(tx)
@@ -24,7 +26,10 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       }
       const metadata = await this.getDocumentInnerMetadata(tx)
       const optionsIndecies = (options as DocumentDataplyOptions).indecies ?? {}
-      const targetIndecies: { [key: string]: boolean } = { ...optionsIndecies, _id: true }
+      const targetIndecies: { [key: string]: boolean } = {
+        ...optionsIndecies,
+        _id: true
+      }
 
       const backfillTargets: string[] = []
       let isMetadataChanged = false
@@ -33,28 +38,28 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         const isBackfillEnabled = targetIndecies[field]
         const existingIndex = metadata.indecies[field]
 
+        // 새롭게 추가된 인덱스
         if (!existingIndex) {
-          // New Index
-          // User request: Create row in readHead.
-          // We set PK to 0 as placeholder.
-          metadata.indecies[field] = [0, isBackfillEnabled]
+          // 사용자 요청: readHead에서 행 생성.
+          // PK를 -1로 설정하여 플레이스홀더로 사용.
+          metadata.indecies[field] = [-1, isBackfillEnabled]
           isMetadataChanged = true
 
           if (isBackfillEnabled && !isNewlyCreated) {
-            // If DB is new, no data to backfill anyway.
+            // DB가 새로 생성된 경우, 백필할 데이터가 없음.
             backfillTargets.push(field)
           }
         }
+        // 기존 인덱스
         else {
-          // Existing Index
-          const [pk, isMetaBackfillEnabled] = existingIndex
-          // False -> True
+          const [_pk, isMetaBackfillEnabled] = existingIndex
+          // 비활성 -> 활성
           if (isBackfillEnabled && !isMetaBackfillEnabled) {
             metadata.indecies[field][1] = true
             isMetadataChanged = true
             backfillTargets.push(field)
           }
-          // True -> False
+          // 활성 -> 비활성
           else if (!isBackfillEnabled && isMetaBackfillEnabled) {
             metadata.indecies[field][1] = false
             isMetadataChanged = true
@@ -68,7 +73,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
       this.indecies = metadata.indecies
 
-      // Initialize Trees
+      // 트리 초기화
       for (const field in this.indecies) {
         if (field in targetIndecies) {
           const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
@@ -85,55 +90,128 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         }
       }
 
-      if (backfillTargets.length) {
-        const idTree = this.trees.get('_id')
-        if (idTree) {
-          // Iterate all documents
-          const stream = idTree.whereStream({}, Infinity)
-          const fields: Record<string, BPTreeAsyncTransaction<number, DataplyTreeValue<Primitive>>> = {}
-
-          for await (const [pk, val] of stream) {
-            // Fetch Document
-            const docRow = await this.select(pk, false, tx)
-            if (!docRow) continue
-            const doc = JSON.parse(docRow) as DataplyDocument<T>
-            const flatDoc = this.flattenDocument(doc)
-
-            for (const field of backfillTargets) {
-              const tree = this.trees.get(field)
-              if (
-                field === '_id' ||
-                !tree ||
-                !(field in flatDoc)
-              ) {
-                continue
-              }
-
-              const v = flatDoc[field]
-              const btx = await tree.createTransaction()
-              fields[field] = btx
-              await btx.insert(pk, { k: pk, v })
-            }
-          }
-
-          await Promise.all(Object.values(fields).map(btx => btx.commit()))
-        }
-      }
+      // 초기화 중 실행하는 대신 백필 대기 필드 저장
+      // 초기화 후 backfillIndices()를 호출하여 백필 수행
+      this.pendingBackfillFields = backfillTargets
 
       return tx
     })
   }
 
-  createDocumentInnerMetadata(idTreePk: number): DocumentDataplyInnerMetadata {
+  async readLock<T>(fn: () => T): Promise<T> {
+    let lockId: string
+    return this.lock.readLock(async (_lockId) => {
+      lockId = _lockId
+      return await fn()
+    }).finally(() => {
+      this.lock.readUnlock(lockId)
+    })
+  }
+
+  async writeLock<T>(fn: () => T): Promise<T> {
+    let lockId: string
+    return this.lock.writeLock(async (_lockId) => {
+      lockId = _lockId
+      return await fn()
+    }).finally(() => {
+      this.lock.writeUnlock(lockId)
+    })
+  }
+
+  async getDocument(pk: number, tx?: Transaction): Promise<DataplyDocument<T>> {
+    return this.runWithDefault(async (tx) => {
+      const row = await this.select(pk, false, tx)
+      if (!row) {
+        throw new Error(`Document not found with PK: ${pk}`)
+      }
+      return JSON.parse(row) as DataplyDocument<T>
+    }, tx)
+  }
+
+  /**
+   * Backfill indices for fields that were added with `true` option after data was inserted.
+   * This method should be called after `init()` if you want to index existing documents
+   * for newly added index fields.
+   * 
+   * @returns Number of documents that were backfilled
+   */
+  async backfillIndices(tx?: Transaction): Promise<number> {
+    return this.runWithDefault(async (tx) => {
+      // 백필할 데이터가 없거나
+      if (this.pendingBackfillFields.length === 0) {
+        return 0
+      }
+
+      const backfillTargets = this.pendingBackfillFields
+      const metadata = await this.getDocumentInnerMetadata(tx)
+
+      // 아직 아무런 데이터도 삽입되지 않은 데이터베이스라면 제외
+      if (metadata.lastId === 0) {
+        return 0
+      }
+
+      // 대상 필드당 하나의 트랜잭션 생성
+      const fieldTxMap: Record<string, BPTreeAsyncTransaction<number, DataplyTreeValue<Primitive>>> = {}
+      for (const field of backfillTargets) {
+        const tree = this.trees.get(field)
+        if (tree && field !== '_id') {
+          fieldTxMap[field] = await tree.createTransaction()
+        }
+      }
+
+      let backfilledCount = 0
+
+      const idTree = this.trees.get('_id')
+      if (!idTree) {
+        throw new Error('ID tree not found')
+      }
+
+      const stream = idTree.whereStream({
+        primaryGte: { v: 0 }
+      })
+
+      // 모든 행을 스캔하여 문서 찾기 (1번 행은 메타데이터, 2번 행 이후는 트리 헤드 또는 문서)
+      for await (const [k, complexValue] of stream) {
+        const doc = await this.getDocument(k, tx)
+        if (!doc) continue
+        const flatDoc = this.flattenDocument(doc)
+        for (const field of backfillTargets) {
+          if (
+            !(field in flatDoc) || // 문서에 해당 필드가 없음
+            !(field in fieldTxMap) // b+tree 트랜잭션에 해당 필드가 없음
+          ) {
+            continue
+          }
+          const v = flatDoc[field]
+          const btx = fieldTxMap[field]
+          await btx.insert(k, { k, v })
+        }
+        backfilledCount++
+      }
+
+      // 모든 트랜잭션 커밋
+      const commits = Object.values(fieldTxMap).map(btx => btx.commit())
+      await Promise.all(commits).catch(async (err) => {
+        const rollbacks = Object.values(fieldTxMap).map(btx => btx.rollback())
+        await Promise.all(rollbacks)
+        throw err
+      })
+
+      // 백필 후 대기 필드 초기화
+      this.pendingBackfillFields = []
+
+      return backfilledCount
+    }, tx)
+  }
+
+  createDocumentInnerMetadata(indecies: DocumentDataplyInnerMetadata['indecies']): DocumentDataplyInnerMetadata {
     return {
       magicString: 'document-dataply',
       version: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       lastId: 0,
-      indecies: {
-        _id: [idTreePk, true]
-      }
+      indecies,
     }
   }
 
@@ -142,21 +220,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     if (metadata) {
       throw new Error('Document metadata already exists')
     }
-    // 1. Reserve Row 1 with placeholder
-    await this.insertAsOverflow(JSON.stringify({ __placeholder: true }), false, tx)
-
-    // 2. Create _id tree immediately so we have the PK
-    const initialHead = {
-      order: (this.rowTableEngine as any).order,
-      root: null,
-      data: {}
-    }
-    const json = JSON.stringify(initialHead)
-    const pk = await this.insert(json, false, tx)
-
-    // 3. Update metadata with _id tree PK
-    const metaObj = this.createDocumentInnerMetadata(pk)
-    await this.update(1, JSON.stringify(metaObj), tx)
+    // 1. _id 인덱스 플레이스홀더(pk=-1)를 포함한 초기 메타데이터 생성
+    // 실제 트리 헤드 행은 DocumentSerializeStrategyAsync.readHead()에서 지연 생성됨
+    const metaObj = this.createDocumentInnerMetadata({
+      _id: [-1, true]
+    })
+    // 2. 플레이스홀더로 1번 행에 저장
+    await this.insertAsOverflow(JSON.stringify(metaObj), false, tx)
   }
 
   async verifyDocumentFile(tx: Transaction): Promise<boolean> {
@@ -236,6 +306,7 @@ export class DocumentDataply<T extends DocumentJSON> {
    */
   async init(): Promise<void> {
     await this.api.init()
+    await this.api.backfillIndices()
   }
 
   /**
@@ -331,7 +402,7 @@ export class DocumentDataply<T extends DocumentJSON> {
   }
 
   private async insertDocument(document: T, tx: Transaction): Promise<{
-    k: number
+    pk: number
     id: number
     document: DataplyDocument<T>
   }> {
@@ -341,9 +412,9 @@ export class DocumentDataply<T extends DocumentJSON> {
     const dataplyDocument: DataplyDocument<T> = Object.assign({
       _id: id,
     }, document)
-    const k = await this.api.insert(JSON.stringify(dataplyDocument), true, tx)
+    const pk = await this.api.insert(JSON.stringify(dataplyDocument), true, tx)
     return {
-      k,
+      pk,
       id,
       document: dataplyDocument
     }
@@ -356,24 +427,52 @@ export class DocumentDataply<T extends DocumentJSON> {
    * @returns The primary key of the inserted document
    */
   async insert(document: T, tx?: Transaction): Promise<number> {
-    return this.api.runWithDefault(async (tx) => {
-      const { k, document: dataplyDocument } = await this.insertDocument(document, tx)
+    return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
+      const { pk, document: dataplyDocument } = await this.insertDocument(document, tx)
       const flattenDocument = this.api.flattenDocument(dataplyDocument)
-
+      // Indexing
       for (const field in flattenDocument) {
         const tree = this.api.trees.get(field)
         if (!tree) continue
-
         const v = flattenDocument[field]
-        const treeTx = await tree.createTransaction() // Create short-lived transaction
-        await treeTx.insert(k, { k, v })
-        const result = await treeTx.commit() // Flush to main transaction
-        if (!result.success) {
-          throw new Error(`BPTree indexing failed for field: ${field}`)
+        const [error] = await catchPromise(tree.insert(pk, { k: pk, v }))
+        if (error) {
+          console.error(`BPTree indexing failed for field: ${field}`, error)
         }
       }
       return dataplyDocument._id
-    }, tx)
+    }, tx))
+  }
+
+  async insertBatch(documents: T[], tx?: Transaction): Promise<number[]> {
+    return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
+      const pks: number[] = []
+      const treeTxs: Map<string, BPTreeAsyncTransaction<number, DataplyTreeValue<Primitive>>> = new Map()
+      for (const document of documents) {
+        const { pk, document: dataplyDocument } = await this.insertDocument(document, tx)
+        const flattenDocument = this.api.flattenDocument(dataplyDocument)
+        // Indexing
+        for (const field in flattenDocument) {
+          let treeTx = treeTxs.get(field)
+          if (!treeTx) {
+            const tree = this.api.trees.get(field)
+            if (!tree) continue
+            treeTx = await tree.createTransaction()
+            treeTxs.set(field, treeTx)
+          }
+          const v = flattenDocument[field]
+          const [error] = await catchPromise(treeTx.insert(pk, { k: pk, v }))
+          if (error) {
+            console.error(`BPTree indexing failed for field: ${field}`, error)
+          }
+        }
+        pks.push(dataplyDocument._id)
+      }
+      for (const tx of treeTxs.values()) {
+        await tx.commit()
+      }
+      return pks
+    }, tx))
   }
 
   /**
@@ -398,7 +497,6 @@ export class DocumentDataply<T extends DocumentJSON> {
         let isMatch = true
         for (const { tree, condition } of others) {
           const targetValue = await tree.get(pk)
-
           if (targetValue === undefined || !tree.verify(targetValue, condition)) {
             isMatch = false
             break
