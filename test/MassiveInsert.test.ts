@@ -41,23 +41,23 @@ describe('Massive Data Insertion', () => {
     }
   })
 
-  // afterAll(async () => {
-  //   if (db) await db.close()
+  afterAll(async () => {
+    if (db) await db.close()
 
-  //   // Cleanup after finishing
-  //   if (fs.existsSync(dbPath)) {
-  //     fs.unlinkSync(dbPath)
-  //   }
-  //   const dir = path.dirname(dbPath)
-  //   if (fs.existsSync(dir)) {
-  //     const files = fs.readdirSync(dir)
-  //     for (const file of files) {
-  //       if (file.startsWith('test_massive.db.')) {
-  //         fs.unlinkSync(path.join(dir, file))
-  //       }
-  //     }
-  //   }
-  // })
+    // Cleanup after finishing
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath)
+    }
+    const dir = path.dirname(dbPath)
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir)
+      for (const file of files) {
+        if (file.startsWith('test_massive.db.')) {
+          fs.unlinkSync(path.join(dir, file))
+        }
+      }
+    }
+  })
 
   test('should insert 10,000 documents', async () => {
     db = new DocumentDataply(dbPath, {

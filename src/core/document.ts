@@ -444,6 +444,12 @@ export class DocumentDataply<T extends DocumentJSON> {
     }, tx))
   }
 
+  /**
+   * Insert a batch of documents into the database
+   * @param documents The documents to insert
+   * @param tx The transaction to use
+   * @returns The primary keys of the inserted documents
+   */
   async insertBatch(documents: T[], tx?: Transaction): Promise<number[]> {
     return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
       // 1. Prepare Metadata and increment IDs in bulk

@@ -1,72 +1,172 @@
-# 사용 방법
+# Document-Dataply
 
-```typescript
-const db = new DocumentDataply<{
-  name: string
-  age: number
-  options?: {
-    address: string
-    tags: string[]
-  }
-}>('my-db.db', {
-  wal: 'my-db.db.wal',
-  indices: {
-    name: true,
-    age: false,
-    'options.tags.0': true,
-    'options.tags.1': false,
-  }
-})
+> [!WARNING]
+> **This project is currently in the Alpha stage.**
+> APIs and internal structures may change significantly between versions. Use with caution in production environments.
+
+`document-dataply` is a high-performance, document-oriented database library built on top of the [`dataply`](https://github.com/izure1/dataply) record storage engine. It provides a structured way to store, index, and query JSON-like documents with support for transactions and complex field indexing.
+
+## Features
+
+- **Document-Oriented**: Store and retrieve JSON-like documents.
+- **B+Tree Indexing**: High-performance lookups using B+Tree indexing engine.
+- **Deep Indexing**: Index nested object fields and specific array elements (e.g., `user.profile.name` or `tags.0`).
+- **Flexible Indexing Policy**: Support for full re-indexing of existing data or incremental indexing for future data.
+- **Transactions**: ACID-compliant transactions for atomic operations.
+- **Rich Querying**: Support for comparison operators (`lt`, `gt`, `equal`, etc.) and pattern matching (`like`).
+
+## Installation
+
+```bash
+npm install document-dataply
+# or
+yarn add document-dataply
 ```
 
-## DocumentInnerMetadata
-
-내부적으로 document-dataply는 최초 데이터베이스 생성 시,
-새로운 overflow행을 삽입함. 이 행의 pk는 1임.
-이후 새로운 documentInnerMetadata가 업데이트 된다면, 이 pk가 1인 행을 업데이트함으로써, 내부에 데이터를 저장함.
-
-## 인덱스
-
-인스턴스 생성 시, indices 옵션으로 지정된 값만 인덱스를 생성.
-키-값으로 이루어져있으며, 값은 boolean 형태임.
-
-키는 삽입될 문서의 필드에 해당함.
-만일 배열이 있다면, 배열의 0번째 요소에 대해선 [필드명.숫자] 형식으로 지정함. 이걸 인덱스필드라고 함.
-[필드명A.필드명B.숫자] 이런식으로 깊게 들어갈 수도 있음.
-
-값은 true, false로 지정되며,
-true로 지정될 경우, 이전에 삽입되었던 모든 문서에 대해서도 인덱스를 생성함.
-false로 지정될 경우, 이전에 삽입되었던 문서에는 인덱스를 생성하지 않으며, 향후 삽입될 문서에 대해서만 인덱스를 생성함.
-이를 인덱스 정책이라 하겠음.
-
-이 옵션은 이전에 저장된 옵션 데이터를 기반으로 동작함.
-예를 들어 이전에 false로 지정되었으나, 이번에 true로 지정되었다면 이전에 저장된 값이랑 비교해서 해당 동작을 해야함.
-이 옵션 데이터 저장은 데이터페이스 pk가 1인 행에 documentInnerMetadata에 삽입됨.
-
-### 인덱스 b+tree
-
-documentInnerMetadata에는 여러 데이터가 저장되어있으며, JSON.parse로 파싱하면 아래와 같은 구조가 있을 것.
+## Quick Start
 
 ```typescript
-// documentInnerMetadata
-{
-  ...
-  indices: {
-    [인덱스필드명]: [인덱스 b+tree 헤드 pk, 인덱스 정책]
-  }
+import { DocumentDataply } from 'document-dataply';
+
+async function main() {
+  const db = new DocumentDataply<{
+    name: string;
+    age: number;
+    tags: string[];
+  }>('my-database.db', {
+    wal: 'my-database.wal',
+    indices: {
+      name: true, // Index existing and new data
+      age: false, // Index only new data
+      'tags.0': true // Index the first element of the 'tags' array
+    }
+  });
+
+  // Initialize the database
+  await db.init();
+
+  // Insert a document
+  const id = await db.insert({
+    name: 'John Doe',
+    age: 30,
+    tags: ['admin', 'developer']
+  });
+
+  // Query documents
+  const results = await db.select({
+    name: 'John Doe',
+    age: { gte: 25 }
+  });
+
+  console.log(results);
+
+  // Close the database
+  await db.close();
 }
-// sample
-{
-  ...
-  indices: {
-    _id: [2, true],
-    name: [3, true],
-    'options.tags.1': [5, false]
-  }
+
+main();
+```
+
+## Advanced Usage
+
+### Indexing Policies
+
+When defining indices in the constructor, you can specify a boolean value:
+
+- `true`: The library will index all existing documents for this field during `init()` and all subsequent insertions.
+- `false`: The library will only index documents inserted after this configuration.
+
+> [!NOTE]
+> `db.init()` automatically performs the backfilling process for fields marked as `true`.
+
+### Batch Insertion
+
+For inserting multiple documents efficiently:
+
+```typescript
+const ids = await db.insertBatch([
+  { name: 'Alice', age: 25, tags: ['user'] },
+  { name: 'Bob', age: 28, tags: ['moderator'] }
+]);
+```
+
+### Querying
+
+`document-dataply` supports various comparison operators:
+
+| Operator | Description |
+| :--- | :--- |
+| `lt` | Less than |
+| `lte` | Less than or equal to |
+| `gt` | Greater than |
+| `gte` | Greater than or equal to |
+| `equal` | Equal to |
+| `notEqual` | Not equal to |
+| `like` | SQL-like pattern matching (e.g., `Jo%`) |
+| `or` | Array of value where at least one must be met |
+
+Example of a complex query:
+```typescript
+const users = await db.select({
+  age: { gt: 18, lt: 65 },
+  'address.city': 'Seoul',
+  tags: { or: ['vip', 'premium'] }
+});
+```
+
+> [!IMPORTANT]
+> **Query Constraints**: You can only use query conditions (`lt`, `gt`, `equal`, etc.) on fields that have been explicitly indexed in the constructor. 
+> 
+> **If a field in the query is not indexed, its condition will be ignored.**
+> 
+> If you need to filter by a non-indexed field, you must retrieve the documents first and then use JavaScript's native `.filter()` method:
+> ```typescript
+> const results = await db.select({ /* indexed fields only */ });
+> const filtered = results.filter(doc => doc.unindexedField === 'some-value');
+> ```
+
+### Transactions
+
+Use transactions to ensure atomicity for multiple operations:
+
+```typescript
+const tx = db.createTransaction();
+try {
+  await db.insert({ name: 'Alice', age: 25 }, tx);
+  await db.insert({ name: 'Bob', age: 28 }, tx);
+  await tx.commit();
+} catch (error) {
+  await tx.rollback();
+  throw error;
 }
 ```
 
-새로운 인덱스를 생성해야할 때, 새로운 행을 insertAsOverflow 행으로 삽입하고, 반환된 pk를 인덱스 b+tree 헤드 행으로 삼음.
-향후 인덱스의 헤드가 변경되면, documentStrategy.ts에서 writeHead 를 호출하여 저장될 것이고, 이 때, documentInnerMetadata에 있는 해당 필드에 해당하는 헤드 pk 행을 업데이트하는 방식으로 진행됨.
+## API Reference
 
-인덱스는 생성하거나, 수정될 때, 트랜잭션 내부에서 시행하여 원자성을 보존해야함.
+### `new DocumentDataply<T>(file, options)`
+Creates a new database instance. `T` defines the document structure.
+
+### `db.init()`
+Initializes the database, sets up internal metadata, and prepares indices.
+
+### `db.insert(document, tx?)`
+Inserts a single document. Returns the document's `_id` (`number`).
+
+### `db.insertBatch(documents, tx?)`
+Inserts multiple documents efficiently. Returns an array of `_id`s (`number[]`).
+
+### `db.select(query, limit?, tx?)`
+Retrieves documents matching the query. `limit` defaults to `Infinity`.
+
+### `db.getMetadata(tx?)`
+Returns physical storage information (page count, row count, etc.).
+
+### `db.createTransaction()`
+Returns a new `Transaction` object.
+
+### `db.close()`
+Flushes changes and closes the database file.
+
+## License
+
+MIT
