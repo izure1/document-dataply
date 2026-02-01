@@ -446,21 +446,45 @@ export class DocumentDataply<T extends DocumentJSON> {
 
   async insertBatch(documents: T[], tx?: Transaction): Promise<number[]> {
     return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
-      const pks: number[] = []
+      // 1. Prepare Metadata and increment IDs in bulk
+      const metadata = await this.api.getDocumentInnerMetadata(tx)
+      const startId = metadata.lastId + 1
+      metadata.lastId += documents.length
+      await this.api.updateDocumentInnerMetadata(metadata, tx)
+
+      const ids: number[] = []
+      const dataplyDocuments: string[] = []
       const flattenedData: { pk: number, data: FlattenedDocumentJSON }[] = []
 
-      // 1. Data Insertion Phase
-      for (const document of documents) {
-        const { pk, document: dataplyDocument } = await this.insertDocument(document, tx)
+      // 2. Data Preparation Phase
+      for (let i = 0, len = documents.length; i < len; i++) {
+        const id = startId + i
+        const dataplyDocument: DataplyDocument<T> = Object.assign({
+          _id: id,
+        }, documents[i])
+
+        const stringified = JSON.stringify(dataplyDocument)
+        dataplyDocuments.push(stringified)
+
         const flattenDocument = this.api.flattenDocument(dataplyDocument)
-        flattenedData.push({ pk, data: flattenDocument })
-        pks.push(dataplyDocument._id)
+        flattenedData.push({ pk: -1, data: flattenDocument }) // PK will be filled after insertion
+
+        ids.push(id)
       }
 
-      // 2. Indexing Phase (Grouped by field)
+      // 3. Batch Data Insertion
+      const pks = await this.api.insertBatch(dataplyDocuments, true, tx)
+
+      // 4. Update PKs for indexing
+      for (let i = 0, len = pks.length; i < len; i++) {
+        flattenedData[i].pk = pks[i]
+      }
+
+      // 5. Indexing Phase (Grouped by field)
       for (const [field, tree] of this.api.trees) {
         const treeTx = await tree.createTransaction()
-        for (const item of flattenedData) {
+        for (let i = 0, len = flattenedData.length; i < len; i++) {
+          const item = flattenedData[i]
           const v = item.data[field]
           if (v === undefined) continue
           const [error] = await catchPromise(treeTx.insert(item.pk, { k: item.pk, v }))
@@ -470,7 +494,7 @@ export class DocumentDataply<T extends DocumentJSON> {
         }
         await treeTx.commit()
       }
-      return pks
+      return ids
     }, tx))
   }
 
