@@ -447,29 +447,28 @@ export class DocumentDataply<T extends DocumentJSON> {
   async insertBatch(documents: T[], tx?: Transaction): Promise<number[]> {
     return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
       const pks: number[] = []
-      const treeTxs: Map<string, BPTreeAsyncTransaction<number, DataplyTreeValue<Primitive>>> = new Map()
+      const flattenedData: { pk: number, data: FlattenedDocumentJSON }[] = []
+
+      // 1. Data Insertion Phase
       for (const document of documents) {
         const { pk, document: dataplyDocument } = await this.insertDocument(document, tx)
         const flattenDocument = this.api.flattenDocument(dataplyDocument)
-        // Indexing
-        for (const field in flattenDocument) {
-          let treeTx = treeTxs.get(field)
-          if (!treeTx) {
-            const tree = this.api.trees.get(field)
-            if (!tree) continue
-            treeTx = await tree.createTransaction()
-            treeTxs.set(field, treeTx)
-          }
-          const v = flattenDocument[field]
-          const [error] = await catchPromise(treeTx.insert(pk, { k: pk, v }))
+        flattenedData.push({ pk, data: flattenDocument })
+        pks.push(dataplyDocument._id)
+      }
+
+      // 2. Indexing Phase (Grouped by field)
+      for (const [field, tree] of this.api.trees) {
+        const treeTx = await tree.createTransaction()
+        for (const item of flattenedData) {
+          const v = item.data[field]
+          if (v === undefined) continue
+          const [error] = await catchPromise(treeTx.insert(item.pk, { k: item.pk, v }))
           if (error) {
             console.error(`BPTree indexing failed for field: ${field}`, error)
           }
         }
-        pks.push(dataplyDocument._id)
-      }
-      for (const tx of treeTxs.values()) {
-        await tx.commit()
+        await treeTx.commit()
       }
       return pks
     }, tx))
