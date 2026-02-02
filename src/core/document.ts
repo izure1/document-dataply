@@ -9,11 +9,11 @@ import type {
   FinalFlatten,
   DocumentDataplyCondition,
   DataplyDocument,
-  DocumentDataplyMetadata
+  DocumentDataplyMetadata,
+  DocumentDataplyQueryOptions
 } from '../types'
 import {
   type BPTreeCondition,
-  type BPTreeOrder,
   DataplyAPI,
   Transaction,
   BPTreeAsync,
@@ -33,7 +33,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   private pendingBackfillFields: string[] = []
   private readonly lock: Ryoiki
 
-  constructor(file: string, options: DocumentDataplyOptions) {
+  constructor(file: string, options: DocumentDataplyOptions<T>) {
     super(file, options)
     this.trees = new Map()
     this.lock = new Ryoiki()
@@ -45,7 +45,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         throw new Error('Document metadata verification failed')
       }
       const metadata = await this.getDocumentInnerMetadata(tx)
-      const optionsIndecies = (options as DocumentDataplyOptions).indecies ?? {}
+      const optionsIndecies = (options as DocumentDataplyOptions<T>).indecies ?? {}
       const targetIndecies: { [key: string]: boolean } = {
         ...optionsIndecies,
         _id: true
@@ -317,7 +317,7 @@ export class DocumentDataply<T extends DocumentJSON> {
       like: 'like',
     }
 
-  constructor(file: string, options?: DocumentDataplyOptions) {
+  constructor(file: string, options?: DocumentDataplyOptions<T>) {
     this.api = new DocumentDataplyAPI(file, options ?? {})
   }
 
@@ -527,26 +527,31 @@ export class DocumentDataply<T extends DocumentJSON> {
   /**
    * Select documents from the database
    * @param query The query to use
-   * @param limit The maximum number of documents to return
-   * @param order The order to use
+   * @param options The options to use
    * @param tx The transaction to use
    * @returns The documents that match the query
    */
   async select(
     query: Partial<DocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>>>,
-    limit: number = Infinity,
-    order: BPTreeOrder = 'asc',
+    options: DocumentDataplyQueryOptions<FinalFlatten<DataplyDocument<T>>> = {},
     tx?: Transaction
   ): Promise<DataplyDocument<T>[]> {
+    const {
+      limit = Infinity,
+      orderBy = '_id',
+      sortOrder = 'asc'
+    } = options
     return this.api.runWithDefault(async (tx) => {
       const verbose = this.verboseQuery(query)
       const selectivity = await this.getSelectivityCandidate(verbose)
 
+      // 해당 쿼리문의 필드로 생성된 인덱스가 없을 경우 조회를 취소합니다
       if (!selectivity) return []
 
+      // 인덱스를 사용하여 조회
       const keys: Set<number> = new Set()
       const { driver, others } = selectivity
-      const stream = driver.tree.whereStream(driver.condition, limit, order)
+      const stream = driver.tree.whereStream(driver.condition, limit, sortOrder)
 
       for await (const [pk, val] of stream) {
         let isMatch = true

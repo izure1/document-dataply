@@ -1,4 +1,7 @@
-import type { DataplyOptions, SerializeStrategyHead } from 'dataply'
+import type {
+  BPTreeOrder,
+  DataplyOptions
+} from 'dataply'
 
 export type Primitive = string | number | boolean | null;
 export type JSONValue = Primitive | JSONValue[] | { [key: string]: JSONValue };
@@ -45,6 +48,12 @@ export type DocumentDataplyCondition<V> = {
   notEqual?: Partial<V>
   or?: Partial<V>[]
   like?: string
+}
+
+export type DocumentDataplyQueryOptions<V> = {
+  limit?: number
+  orderBy?: keyof V
+  sortOrder?: BPTreeOrder
 }
 
 export type DocumentDataplyQuery<T> = {
@@ -110,7 +119,7 @@ export type FinalFlatten<T> = {
   [P in DeepFlattenKeys<T>]: GetTypeByPath<T, P & string>
 }
 
-export interface DocumentDataplyOptions extends DataplyOptions {
+export interface DocumentDataplyOptions<T> extends DataplyOptions {
   /**
    * Indecies to create when initializing the database.
    * If not specified, no indecies will be created.
@@ -118,6 +127,6 @@ export interface DocumentDataplyOptions extends DataplyOptions {
    * If the value of the index is `false`, the index will not be created for the already inserted data.
    */
   indecies?: {
-    [key: string]: boolean
+    [key in keyof FinalFlatten<T>]: boolean
   }
 }
