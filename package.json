@@ -1,6 +1,6 @@
 {
   "name": "document-dataply",
-  "version": "0.0.2-alpha.4",
+  "version": "0.0.2",
   "description": "",
   "license": "MIT",
   "author": "izure <admin@izure.org>",
@@ -26,7 +26,7 @@
     "build": "node build/index.js && tsc"
   },
   "dependencies": {
-    "dataply": "^0.0.18-alpha.3"
+    "dataply": "^0.0.18"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
