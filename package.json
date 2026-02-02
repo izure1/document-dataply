@@ -25,6 +25,19 @@
     "test": "jest -i",
     "build": "node build/index.js && tsc"
   },
+  "keywords": [
+    "database",
+    "document-database",
+    "nosql",
+    "json",
+    "indexing",
+    "bptree",
+    "transactions",
+    "acid",
+    "embedded-database",
+    "deep-indexing",
+    "dataply"
+  ],
   "dependencies": {
     "dataply": "^0.0.18"
   },
