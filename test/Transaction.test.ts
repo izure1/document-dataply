@@ -15,7 +15,7 @@ describe('DocumentDataply Transaction', () => {
       fs.unlinkSync(dbPath)
     }
     db = new DocumentDataply(dbPath, {
-      indecies: {
+      indices: {
         name: true,
       }
     })
@@ -34,7 +34,7 @@ describe('DocumentDataply Transaction', () => {
     await db.insert({ name: 'Tx User 1' }, tx)
     await tx.commit()
 
-    const results = await db.select({ name: 'Tx User 1' })
+    const results = await db.select({ name: 'Tx User 1' }).drain()
     expect(results.length).toBe(1)
   })
 
@@ -43,7 +43,7 @@ describe('DocumentDataply Transaction', () => {
     await db.insert({ name: 'Tx User 2' }, tx)
     await tx.rollback()
 
-    const results = await db.select({ name: 'Tx User 2' })
+    const results = await db.select({ name: 'Tx User 2' }).drain()
     expect(results.length).toBe(0)
   })
 
@@ -52,11 +52,11 @@ describe('DocumentDataply Transaction', () => {
     const tx = db.createTransaction()
     await db.insert({ name: 'Isolated User' }, tx)
 
-    const results = await db.select({ name: 'Isolated User' }) // This runs without 'tx', so it shouldn't see it (if isolation is set)
+    const results = await db.select({ name: 'Isolated User' }).drain() // This runs without 'tx', so it shouldn't see it (if isolation is set)
     expect(results.length).toBe(0)
 
     await tx.commit()
-    const finalResults = await db.select({ name: 'Isolated User' })
+    const finalResults = await db.select({ name: 'Isolated User' }).drain()
     expect(finalResults.length).toBe(1)
   })
 })

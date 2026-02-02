@@ -56,7 +56,7 @@ async function main() {
   const results = await db.select({
     name: 'John Doe',
     age: { gte: 25 }
-  });
+  }).drain();
 
   console.log(results);
 
@@ -111,7 +111,7 @@ const users = await db.select({
   age: { gt: 18, lt: 65 },
   'address.city': 'Seoul',
   tags: { or: ['vip', 'premium'] }
-});
+}).drain();
 ```
 
 > [!IMPORTANT]
@@ -120,10 +120,10 @@ const users = await db.select({
 > **If a field in the query is not indexed, its condition will be ignored.**
 > 
 > If you need to filter by a non-indexed field, you must retrieve the documents first and then use JavaScript's native `.filter()` method:
-> ```typescript
-> const results = await db.select({ /* indexed fields only */ });
-> const filtered = results.filter(doc => doc.unindexedField === 'some-value');
-> ```
+```typescript
+const results = await db.select({ /* indexed fields only */ }).drain();
+const filtered = results.filter(doc => doc.unindexedField === 'some-value');
+```
 
 ### Transactions
 
@@ -145,6 +145,7 @@ try {
 
 ### `new DocumentDataply<T>(file, options)`
 Creates a new database instance. `T` defines the document structure.
+`options.indices` is an object where keys are field names and values are booleans indicating whether to index the field.
 
 ### `db.init()`
 Initializes the database, sets up internal metadata, and prepares indices.
@@ -155,8 +156,11 @@ Inserts a single document. Returns the document's `_id` (`number`).
 ### `db.insertBatch(documents, tx?)`
 Inserts multiple documents efficiently. Returns an array of `_id`s (`number[]`).
 
-### `db.select(query, limit?, tx?)`
-Retrieves documents matching the query. `limit` defaults to `Infinity`.
+### `db.select(query, options?, tx?)`
+Retrieves documents matching the query.
+Returns an object `{ stream, drain }`.
+- `stream`: An async iterator to iterate over results one by one.
+- `drain()`: A promise that resolves to an array of all matching documents.
 
 ### `db.getMetadata(tx?)`
 Returns physical storage information (page count, row count, etc.).

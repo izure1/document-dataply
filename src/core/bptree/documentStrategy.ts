@@ -42,7 +42,7 @@ export class DocumentSerializeStrategyAsync<T extends Primitive> extends Seriali
   async readHead(): Promise<SerializeStrategyHead | null> {
     const tx = this.txContext.get()
     const metadata = await this.api.getDocumentInnerMetadata(tx!)
-    const indexInfo = metadata.indecies[this.treeKey]
+    const indexInfo = metadata.indices[this.treeKey]
 
     if (!indexInfo) return null // Document.ts에서 -1로 초기화되었어야 함
 
@@ -51,7 +51,7 @@ export class DocumentSerializeStrategyAsync<T extends Primitive> extends Seriali
       // 지연 생성 메커니즘: 헤드를 위한 행 예약
       const pk = await this.api.insertAsOverflow('__BPTREE_HEAD_PLACEHOLDER__', false, tx!)
       // 실제 PK로 메타데이터 업데이트
-      metadata.indecies[this.treeKey][0] = pk
+      metadata.indices[this.treeKey][0] = pk
       await this.api.updateDocumentInnerMetadata(metadata, tx!)
 
       return null // BPTree 초기화를 트리거하기 위해 null 반환 (루트 생성 및 writeHead 호출)
@@ -67,7 +67,7 @@ export class DocumentSerializeStrategyAsync<T extends Primitive> extends Seriali
   async writeHead(head: SerializeStrategyHead): Promise<void> {
     const tx = this.txContext.get()
     const metadata = await this.api.getDocumentInnerMetadata(tx!)
-    const indexInfo = metadata.indecies[this.treeKey]
+    const indexInfo = metadata.indices[this.treeKey]
 
     if (!indexInfo) {
       throw new Error(`Index info not found for tree: ${this.treeKey}. Initialization should be handled outside.`)

@@ -26,8 +26,9 @@ import { catchPromise } from '../utils/catchPromise'
 
 export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   declare runWithDefault
+  declare streamWithDefault
 
-  indecies: DocumentDataplyInnerMetadata['indecies'] = {}
+  indices: DocumentDataplyInnerMetadata['indices'] = {}
   readonly trees: Map<string, BPTreeAsync<number, DataplyTreeValue<Primitive>>> = new Map()
   readonly comparator = new DocumentValueComparator()
   private pendingBackfillFields: string[] = []
@@ -45,24 +46,24 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         throw new Error('Document metadata verification failed')
       }
       const metadata = await this.getDocumentInnerMetadata(tx)
-      const optionsIndecies = (options as DocumentDataplyOptions<T>).indecies ?? {}
-      const targetIndecies: { [key: string]: boolean } = {
-        ...optionsIndecies,
+      const optionsIndices = (options as DocumentDataplyOptions<T>).indices ?? {}
+      const targetIndices: { [key: string]: boolean } = {
+        ...optionsIndices,
         _id: true
       }
 
       const backfillTargets: string[] = []
       let isMetadataChanged = false
 
-      for (const field in targetIndecies) {
-        const isBackfillEnabled = targetIndecies[field]
-        const existingIndex = metadata.indecies[field]
+      for (const field in targetIndices) {
+        const isBackfillEnabled = targetIndices[field]
+        const existingIndex = metadata.indices[field]
 
         // 새롭게 추가된 인덱스
         if (!existingIndex) {
           // 사용자 요청: readHead에서 행 생성.
           // PK를 -1로 설정하여 플레이스홀더로 사용.
-          metadata.indecies[field] = [-1, isBackfillEnabled]
+          metadata.indices[field] = [-1, isBackfillEnabled]
           isMetadataChanged = true
 
           if (isBackfillEnabled && !isNewlyCreated) {
@@ -75,13 +76,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           const [_pk, isMetaBackfillEnabled] = existingIndex
           // 비활성 -> 활성
           if (isBackfillEnabled && !isMetaBackfillEnabled) {
-            metadata.indecies[field][1] = true
+            metadata.indices[field][1] = true
             isMetadataChanged = true
             backfillTargets.push(field)
           }
           // 활성 -> 비활성
           else if (!isBackfillEnabled && isMetaBackfillEnabled) {
-            metadata.indecies[field][1] = false
+            metadata.indices[field][1] = false
             isMetadataChanged = true
           }
         }
@@ -91,11 +92,11 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         await this.updateDocumentInnerMetadata(metadata, tx)
       }
 
-      this.indecies = metadata.indecies
+      this.indices = metadata.indices
 
       // 트리 초기화
-      for (const field in this.indecies) {
-        if (field in targetIndecies) {
+      for (const field in this.indices) {
+        if (field in targetIndices) {
           const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
             new DocumentSerializeStrategyAsync<Primitive>(
               (this.rowTableEngine as any).order,
@@ -224,14 +225,14 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     }, tx)
   }
 
-  createDocumentInnerMetadata(indecies: DocumentDataplyInnerMetadata['indecies']): DocumentDataplyInnerMetadata {
+  createDocumentInnerMetadata(indices: DocumentDataplyInnerMetadata['indices']): DocumentDataplyInnerMetadata {
     return {
       magicString: 'document-dataply',
       version: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       lastId: 0,
-      indecies,
+      indices,
     }
   }
 
@@ -531,29 +532,34 @@ export class DocumentDataply<T extends DocumentJSON> {
    * @param tx The transaction to use
    * @returns The documents that match the query
    */
-  async select(
+  select(
     query: Partial<DocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>>>,
     options: DocumentDataplyQueryOptions<FinalFlatten<DataplyDocument<T>>> = {},
     tx?: Transaction
-  ): Promise<DataplyDocument<T>[]> {
+  ): {
+    stream: AsyncIterableIterator<DataplyDocument<T>>
+    drain: () => Promise<DataplyDocument<T>[]>
+  } {
     const {
       limit = Infinity,
       orderBy = '_id',
       sortOrder = 'asc'
     } = options
-    return this.api.runWithDefault(async (tx) => {
-      const verbose = this.verboseQuery(query)
-      const selectivity = await this.getSelectivityCandidate(verbose)
+    const self = this
+    const stream = this.api.streamWithDefault(async function* (tx) {
+      const verbose = self.verboseQuery(query)
+      const selectivity = await self.getSelectivityCandidate(verbose)
 
       // 해당 쿼리문의 필드로 생성된 인덱스가 없을 경우 조회를 취소합니다
       if (!selectivity) return []
 
       // 인덱스를 사용하여 조회
-      const keys: Set<number> = new Set()
       const { driver, others } = selectivity
       const stream = driver.tree.whereStream(driver.condition, limit, sortOrder)
 
+      let i = 0
       for await (const [pk, val] of stream) {
+        if (i >= limit) break
         let isMatch = true
         for (const { tree, condition } of others) {
           const targetValue = await tree.get(pk)
@@ -563,21 +569,23 @@ export class DocumentDataply<T extends DocumentJSON> {
           }
         }
         if (isMatch) {
-          keys.add(pk)
-          if (keys.size >= limit) break
+          const stringified = await self.api.select(pk, false, tx)
+          if (!stringified) {
+            continue
+          }
+          yield JSON.parse(stringified)
+          i++
         }
       }
-
-      const documents: DataplyDocument<T>[] = []
-      for (const key of keys) {
-        const stringify = await this.api.select(key, false, tx)
-        if (!stringify) {
-          continue
-        }
-        documents.push(JSON.parse(stringify))
-      }
-      return documents
     }, tx)
+    const drain = async () => {
+      const result: DataplyDocument<T>[] = []
+      for await (const document of stream) {
+        result.push(document)
+      }
+      return result
+    }
+    return { stream, drain }
   }
 
   /**

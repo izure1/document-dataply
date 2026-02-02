@@ -15,7 +15,7 @@ export interface DocumentDataplyInnerMetadata {
   createdAt: number
   updatedAt: number
   lastId: number
-  indecies: {
+  indices: {
     [key: string]: [number, boolean]
   }
 }
@@ -80,13 +80,12 @@ export type DeepFlattenKeys<T, Prefix extends string = "", D extends number = 12
   [D] extends [0] ? never :
   T extends Primitive ? (Prefix extends `${infer P}.` ? P : never)
   : T extends readonly any[] ? (
-    (Prefix extends `${infer P}.` ? P : never) |
     DeepFlattenKeys<T[number], `${Prefix}${number}.`, Prev[D]>
   )
   : T extends object ? {
     [K in keyof T & string]: NonNullable<T[K]> extends Primitive
     ? `${Prefix}${K}`
-    : `${Prefix}${K}` | DeepFlattenKeys<NonNullable<T[K]>, `${Prefix}${K}.`, Prev[D]>
+    : DeepFlattenKeys<NonNullable<T[K]>, `${Prefix}${K}.`, Prev[D]>
   }[keyof T & string]
   : never
 
@@ -126,7 +125,7 @@ export interface DocumentDataplyOptions<T> extends DataplyOptions {
    * If the value of the index is `true`, the index will be created for the already inserted data.
    * If the value of the index is `false`, the index will not be created for the already inserted data.
    */
-  indecies?: {
+  indices?: Partial<{
     [key in keyof FinalFlatten<T>]: boolean
-  }
+  }>
 }

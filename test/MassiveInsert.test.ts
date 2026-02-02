@@ -62,7 +62,7 @@ describe('Massive Data Insertion', () => {
   test('should insert 10,000 documents', async () => {
     db = new DocumentDataply(dbPath, {
       wal: dbPath + '.wal',
-      indecies: {
+      indices: {
         age: true,
         gender: true,
         company: true
@@ -115,7 +115,7 @@ describe('Massive Data Insertion', () => {
 
   test('should retrieve data correctly after massive insertion', async () => {
     // Search by company (indexed)
-    const results = await db.select({ company: 'Company 1' })
+    const results = await db.select({ company: 'Company 1' }).drain()
     // Logic: id % 100.
     // 0 to 999.
     // id 1 % 100 = 1.
@@ -134,7 +134,7 @@ describe('Massive Data Insertion', () => {
   })
 
   test('should match equality query on indexed field (gender)', async () => {
-    const males = await db.select({ gender: 'male' })
+    const males = await db.select({ gender: 'male' }).drain()
     expect(males.length).toBe(5000)
   })
 })

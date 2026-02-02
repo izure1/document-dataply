@@ -35,15 +35,15 @@ describe('DocumentDataply Basic CRUD', () => {
       }
       tags: string[]
     }>(dbPath, {
-      indecies: {
+      indices: {
         name: true,
         age: true,
         city: true,
         'user.profile.nickname': true,
         'user.profile.level': true,
-        // 'tags.0': true,
-        // 'tags.1': true,
-        // 'tags.5': true,
+        'tags.0': true,
+        'tags.1': true,
+        'tags.5': true,
       }
     })
     await db.init()
@@ -61,7 +61,7 @@ describe('DocumentDataply Basic CRUD', () => {
     const success = await db.insert(doc)
     expect(success).toBe(1)
 
-    const results = await db.select({ name: 'John Doe' })
+    const results = await db.select({ name: 'John Doe' }).drain()
     expect(results.length).toBe(1)
     expect(results[0]).toMatchObject(doc)
     expect(results[0]._id).toBeDefined()
@@ -71,10 +71,10 @@ describe('DocumentDataply Basic CRUD', () => {
     await db.insert({ name: 'Jane Doe', age: 25, city: 'Busan' })
     await db.insert({ name: 'Jim Beam', age: 40, city: 'Seoul' })
 
-    const seoulites = await db.select({ city: 'Seoul' })
+    const seoulites = await db.select({ city: 'Seoul' }).drain()
     expect(seoulites.length).toBe(1)
 
-    const busanite = await db.select({ city: 'Busan' })
+    const busanite = await db.select({ city: 'Busan' }).drain()
     expect(busanite.length).toBe(1)
     expect(busanite[0].name).toBe('Jane Doe')
   })
@@ -91,7 +91,7 @@ describe('DocumentDataply Basic CRUD', () => {
     }
     await db.insert(nestedDoc)
 
-    const result = await db.select({ 'user.profile.nickname': 'iz-ure' })
+    const result = await db.select({ 'user.profile.nickname': 'iz-ure' }).drain()
     expect(result.length).toBe(1)
     expect(result[0].user?.profile.level).toBe(99)
   })
@@ -104,16 +104,16 @@ describe('DocumentDataply Basic CRUD', () => {
     await db.insert(docWithArray)
 
     // 'tags.0' is 'a'
-    const result0 = await db.select({ 'tags.0': 'a' })
+    const result0 = await db.select({ 'tags.0': 'a' }).drain()
     expect(result0.length).toBe(1)
     expect(result0[0].name).toBe('Array Test')
 
     // 'tags.1' is 'b'
-    const result1 = await db.select({ 'tags.1': 'b' })
+    const result1 = await db.select({ 'tags.1': 'b' }).drain()
     expect(result1.length).toBe(1)
 
     // 'tags.5' should return 0 results
-    const result5 = await db.select({ 'tags.5': 'x' })
+    const result5 = await db.select({ 'tags.5': 'x' }).drain()
     expect(result5.length).toBe(0)
   })
 
@@ -121,7 +121,7 @@ describe('DocumentDataply Basic CRUD', () => {
     await db.insert({ name: 'John Doe', age: 30, city: 'Seoul' })
     await db.insert({ name: 'Jane Doe', age: 25, city: 'Busan' })
 
-    const results = await db.select({ name: { like: '% Doe' } })
+    const results = await db.select({ name: { like: '% Doe' } }).drain()
     expect(results.length).toBe(2)
   })
 
