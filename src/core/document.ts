@@ -10,7 +10,8 @@ import type {
   DocumentDataplyCondition,
   DataplyDocument,
   DocumentDataplyMetadata,
-  DocumentDataplyQueryOptions
+  DocumentDataplyQueryOptions,
+  IndexedDocumentDataplyQuery
 } from '../types'
 import {
   type BPTreeCondition,
@@ -302,8 +303,9 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   }
 }
 
-export class DocumentDataply<T extends DocumentJSON> {
+export class DocumentDataply<T extends DocumentJSON, I extends string = keyof FinalFlatten<T> & string> {
   protected readonly api: DocumentDataplyAPI<T>
+  private readonly indexedFields: Set<string>
   private readonly operatorConverters: Record<
     keyof DocumentDataplyCondition<FinalFlatten<T>>,
     keyof BPTreeCondition<FinalFlatten<T>>
@@ -320,6 +322,13 @@ export class DocumentDataply<T extends DocumentJSON> {
 
   constructor(file: string, options?: DocumentDataplyOptions<T>) {
     this.api = new DocumentDataplyAPI(file, options ?? {})
+    // indices에 지정된 필드들을 저장 (_id는 항상 포함)
+    this.indexedFields = new Set(['_id'])
+    if (options?.indices) {
+      for (const field of Object.keys(options.indices)) {
+        this.indexedFields.add(field)
+      }
+    }
   }
 
   /**
@@ -345,7 +354,7 @@ export class DocumentDataply<T extends DocumentJSON> {
   }
 
   private verboseQuery<
-    U extends FinalFlatten<DataplyDocument<T>>,
+    U extends Partial<IndexedDocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>, I>>,
     V extends DataplyTreeValue<U>
   >(
     query: Partial<DocumentDataplyQuery<U>>
@@ -382,42 +391,73 @@ export class DocumentDataply<T extends DocumentJSON> {
 
   /**
    * Get the selectivity candidate for the given query
-   * @param query 
-   * @returns 
+   * @param query The query conditions
+   * @param orderByField Optional field name for orderBy optimization
+   * @returns Driver and other candidates for query execution
    */
   async getSelectivityCandidate<
-    U extends FinalFlatten<DataplyDocument<T>>,
+    U extends Partial<IndexedDocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>, I>>,
     V extends DataplyTreeValue<U>
-  >(query: Partial<DocumentDataplyQuery<V>>): Promise<{
+  >(
+    query: Partial<DocumentDataplyQuery<V>>,
+    orderByField?: string
+  ): Promise<{
     driver: {
       tree: BPTreeAsync<number, V>,
-      condition: Partial<DocumentDataplyCondition<U>>
+      condition: Partial<DocumentDataplyCondition<U>>,
+      field: string
     },
     others: {
       tree: BPTreeAsync<number, V>,
-      condition: Partial<DocumentDataplyCondition<U>>
+      condition: Partial<DocumentDataplyCondition<U>>,
+      field: string
     }[]
   } | null> {
-    const candidates = []
+    const candidates: {
+      tree: BPTreeAsync<number, V>,
+      condition: Partial<DocumentDataplyCondition<U>>,
+      field: string
+    }[] = []
     for (const field in query) {
       const tree = this.api.trees.get(field)
       if (!tree) continue
       const condition = query[field] as Partial<DocumentDataplyCondition<U>>
-      candidates.push({ tree, condition })
+      candidates.push({ tree: tree as unknown as BPTreeAsync<number, V>, condition, field })
     }
+
+    // 쿼리에 조건이 있지만 해당 필드에 인덱스가 없는 경우
+    if (candidates.length === 0) {
+      return null
+    }
+
+    // orderBy 필드가 쿼리 조건에 포함된 경우만 해당 인덱스를 driver로 우선 선택
+    if (orderByField) {
+      const orderByCandidate = candidates.find(c => c.field === orderByField)
+      if (orderByCandidate) {
+        return {
+          driver: orderByCandidate,
+          others: candidates.filter(c => c.field !== orderByField)
+        }
+      }
+      // orderBy가 조건에 없으면 ChooseDriver로 선택도 기반 선택
+    }
+
+    // 기존 로직: ChooseDriver 사용 (선택도 기반)
     let res = BPTreeAsync.ChooseDriver(candidates)
     if (!res && candidates.length > 0) {
       res = candidates[0]
     }
     if (!res) return null
     return {
-      driver: {
-        tree: res.tree as unknown as BPTreeAsync<number, V>,
-        condition: res.condition
-      },
-      others: candidates.filter((c) => c.tree !== res.tree) as unknown as {
+      driver: res as {
         tree: BPTreeAsync<number, V>,
-        condition: Partial<DocumentDataplyCondition<U>>
+        condition: Partial<DocumentDataplyCondition<U>>,
+        field: string
+      },
+      others: candidates.filter(c => c.tree !== res!.tree) as {
+        tree: BPTreeAsync<number, V>,
+        condition: Partial<DocumentDataplyCondition<U>>,
+        field: string
       }[]
     }
   }
@@ -527,54 +567,117 @@ export class DocumentDataply<T extends DocumentJSON> {
 
   /**
    * Select documents from the database
-   * @param query The query to use
+   * @param query The query to use (only indexed fields + _id allowed)
    * @param options The options to use
    * @param tx The transaction to use
    * @returns The documents that match the query
+   * @throws Error if query or orderBy contains non-indexed fields
    */
   select(
-    query: Partial<DocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>>>,
-    options: DocumentDataplyQueryOptions<FinalFlatten<DataplyDocument<T>>> = {},
+    query: Partial<IndexedDocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>, I>>,
+    options: DocumentDataplyQueryOptions<FinalFlatten<DataplyDocument<T>>, I> = {},
     tx?: Transaction
   ): {
     stream: AsyncIterableIterator<DataplyDocument<T>>
     drain: () => Promise<DataplyDocument<T>[]>
   } {
+    // 런타임 검증: 쿼리 필드가 인덱스된 필드인지 확인
+    for (const field of Object.keys(query)) {
+      if (!this.indexedFields.has(field)) {
+        throw new Error(`Query field "${field}" is not indexed. Available indexed fields: ${Array.from(this.indexedFields).join(', ')}`)
+      }
+    }
+
+    // 런타임 검증: orderBy 필드가 인덱스된 필드인지 확인
+    const orderBy = options.orderBy ?? '_id'
+    if (!this.indexedFields.has(orderBy as string)) {
+      throw new Error(`orderBy field "${orderBy}" is not indexed. Available indexed fields: ${Array.from(this.indexedFields).join(', ')}`)
+    }
+
     const {
       limit = Infinity,
-      orderBy = '_id',
       sortOrder = 'asc'
     } = options
     const self = this
     const stream = this.api.streamWithDefault(async function* (tx) {
-      const verbose = self.verboseQuery(query)
-      const selectivity = await self.getSelectivityCandidate(verbose)
+      // 빈 쿼리일 경우 { _id: { gte: 0 } }로 변환하여 전체 조회
+      const isQueryEmpty = Object.keys(query).length === 0
+      const normalizedQuery = isQueryEmpty
+        ? { _id: { gte: 0 } } as unknown as typeof query
+        : query
 
-      // 해당 쿼리문의 필드로 생성된 인덱스가 없을 경우 조회를 취소합니다
-      if (!selectivity) return []
+      const verbose = self.verboseQuery(normalizedQuery)
 
-      // 인덱스를 사용하여 조회
+      // orderBy 필드에 인덱스가 있는지 확인
+      const orderByTree = self.api.trees.get(orderBy as string)
+
+      // orderBy 인덱스가 있고 쿼리 조건에 포함되면 해당 필드 우선 사용
+      const selectivity = await self.getSelectivityCandidate(
+        verbose,
+        orderByTree ? (orderBy as string) : undefined
+      )
+
+      // 인덱스가 없을 경우 조회를 취소합니다
+      if (!selectivity) return
+
       const { driver, others } = selectivity
-      const stream = driver.tree.whereStream(driver.condition, limit, sortOrder)
+      const isDriverOrderByField = orderByTree && driver.field === orderBy
 
-      let i = 0
-      for await (const [pk, val] of stream) {
-        if (i >= limit) break
-        let isMatch = true
-        for (const { tree, condition } of others) {
-          const targetValue = await tree.get(pk)
-          if (targetValue === undefined || !tree.verify(targetValue, condition)) {
-            isMatch = false
-            break
+      if (isDriverOrderByField) {
+        // Case 1: driver가 orderBy 필드 → B+Tree 역순 조회 활용, 재정렬 불필요
+        const driverStream = driver.tree.whereStream(driver.condition as any, limit, sortOrder)
+
+        let i = 0
+        for await (const [pk, val] of driverStream) {
+          if (i >= limit) break
+          let isMatch = true
+          for (const { tree, condition } of others) {
+            const targetValue = await tree.get(pk)
+            if (targetValue === undefined || !tree.verify(targetValue, condition as any)) {
+              isMatch = false
+              break
+            }
+          }
+          if (isMatch) {
+            const stringified = await self.api.select(pk, false, tx)
+            if (!stringified) continue
+            yield JSON.parse(stringified)
+            i++
           }
         }
-        if (isMatch) {
-          const stringified = await self.api.select(pk, false, tx)
-          if (!stringified) {
-            continue
+      } else {
+        // Case 2: orderBy 인덱스 없거나 driver와 다름 → 메모리 내 재정렬 필요
+        const results: DataplyDocument<T>[] = []
+        const driverStream = driver.tree.whereStream(driver.condition as any)
+
+        for await (const [pk, val] of driverStream) {
+          let isMatch = true
+          for (const { tree, condition } of others) {
+            const targetValue = await tree.get(pk)
+            if (targetValue === undefined || !tree.verify(targetValue, condition as any)) {
+              isMatch = false
+              break
+            }
           }
-          yield JSON.parse(stringified)
-          i++
+          if (isMatch) {
+            const stringified = await self.api.select(pk, false, tx)
+            if (!stringified) continue
+            results.push(JSON.parse(stringified))
+          }
+        }
+
+        // 정렬: orderBy 필드로 정렬 (인덱스 없으면 문서 필드로 직접 정렬)
+        results.sort((a, b) => {
+          const aVal = (a as any)[orderBy] ?? (a as any)._id
+          const bVal = (b as any)[orderBy] ?? (b as any)._id
+          const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+          return sortOrder === 'asc' ? cmp : -cmp
+        })
+
+        // limit 적용 후 yield
+        const limitedResults = results.slice(0, limit === Infinity ? undefined : limit)
+        for (const doc of limitedResults) {
+          yield doc
         }
       }
     }, tx)

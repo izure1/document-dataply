@@ -117,4 +117,56 @@ describe('DocumentDataply Query Operators', () => {
     const results = await db.select({ active: true }, { limit: 1 }).drain()
     expect(results.length).toBe(1)
   })
+
+  // New tests for orderBy optimization
+  test('should return all documents with empty query in _id order', async () => {
+    const results = await db.select({}).drain()
+    expect(results.length).toBe(5)
+    // Should be in _id ascending order
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i]._id).toBeGreaterThan(results[i - 1]._id)
+    }
+  })
+
+  test('should sort by orderBy field when indexed', async () => {
+    const results = await db.select({}, { orderBy: 'score', sortOrder: 'asc' }).drain()
+    expect(results.length).toBe(5)
+    expect(results.map(r => r.score)).toEqual([10, 20, 30, 40, 50])
+  })
+
+  test('should sort by orderBy field descending when indexed', async () => {
+    const results = await db.select({}, { orderBy: 'score', sortOrder: 'desc' }).drain()
+    expect(results.length).toBe(5)
+    expect(results.map(r => r.score)).toEqual([50, 40, 30, 20, 10])
+  })
+
+  test('should sort by orderBy with condition when orderBy field in query', async () => {
+    // orderBy=score is in query condition, so it should be driver
+    const results = await db.select(
+      { score: { gte: 20 } },
+      { orderBy: 'score', sortOrder: 'desc' }
+    ).drain()
+    expect(results.length).toBe(4)
+    expect(results.map(r => r.score)).toEqual([50, 40, 30, 20])
+  })
+
+  test('should sort by orderBy when orderBy field not in query (in-memory sort)', async () => {
+    // category is in query, but orderBy=score is not
+    // Should use category as driver (selectivity), then sort results by score
+    const results = await db.select(
+      { category: 'A' },
+      { orderBy: 'score', sortOrder: 'asc' }
+    ).drain()
+    expect(results.length).toBe(2)
+    expect(results.map(r => r.score)).toEqual([10, 30])
+  })
+
+  test('should respect limit with orderBy desc', async () => {
+    const results = await db.select(
+      {},
+      { orderBy: 'score', sortOrder: 'desc', limit: 2 }
+    ).drain()
+    expect(results.length).toBe(2)
+    expect(results.map(r => r.score)).toEqual([50, 40])
+  })
 })

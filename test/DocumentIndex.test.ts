@@ -38,9 +38,8 @@ describe('Document Indexing Options', () => {
     expect(results).toHaveLength(1)
     expect(results[0].name).toBe('Alice')
 
-    // Age has no index, so querying by age should return empty (current limitation/design)
-    const ageResults = await db.select({ age: 30 }).drain()
-    expect(ageResults).toHaveLength(0)
+    // Age has no index, so querying by age should throw error (current limitation/design)
+    expect(() => db.select({ age: 30 })).toThrow()
 
     await db.close()
   })
@@ -58,8 +57,7 @@ describe('Document Indexing Options', () => {
     const pk2 = await db.insert({ name: 'David', age: 45 })
 
     // Confirm no index usage - name tree doesn't exist
-    let results = await db.select({ name: 'Charlie' }).drain()
-    expect(results).toHaveLength(0)
+    expect(() => db.select({ name: 'Charlie' })).toThrow()
     await db.close()
 
     // 2. Restart with index enabled (name: true) -> Backfill should trigger
@@ -71,7 +69,7 @@ describe('Document Indexing Options', () => {
     await db.init()
 
     // Now query should work because backfill happened
-    results = await db.select({ name: 'Charlie' }).drain()
+    let results = await db.select({ name: 'Charlie' }).drain()
     expect(results).toHaveLength(1)
     expect(results[0].name).toBe('Charlie')
 
@@ -130,8 +128,7 @@ describe('Document Indexing Options', () => {
     await db.insert({ name: 'Henry', age: 60 })
 
     // Name tree doesn't exist, so query returns empty
-    const results = await db.select({ name: 'Henry' }).drain()
-    expect(results).toHaveLength(0)
+    expect(() => db.select({ name: 'Henry' })).toThrow()
 
     await db.close()
   })

@@ -50,9 +50,9 @@ export type DocumentDataplyCondition<V> = {
   like?: string
 }
 
-export type DocumentDataplyQueryOptions<V> = {
+export type DocumentDataplyQueryOptions<V, I extends string = string> = {
   limit?: number
-  orderBy?: keyof V
+  orderBy?: I | '_id'
   sortOrder?: BPTreeOrder
 }
 
@@ -60,6 +60,15 @@ export type DocumentDataplyQuery<T> = {
   [key in keyof T]?: T[key] | DocumentDataplyCondition<T[key]>
 } & {
   [key: string]: any
+}
+
+/**
+ * Query type restricted to indexed fields only (+ _id)
+ */
+export type IndexedDocumentDataplyQuery<T, I extends string> = {
+  [key in (I | '_id')]?: key extends keyof T
+  ? T[key] | DocumentDataplyCondition<T[key]>
+  : never
 }
 
 export interface DataplyTreeValue<T> {
