@@ -1,5 +1,25 @@
-import type { DataplyTreeValue, DocumentDataplyInnerMetadata, DocumentDataplyOptions, DocumentJSON, FlattenedDocumentJSON, Primitive, DocumentDataplyQuery, FinalFlatten, DocumentDataplyCondition, DataplyDocument, DocumentDataplyMetadata } from '../types'
-import { DataplyAPI, Transaction, BPTreeAsync, type BPTreeCondition, BPTreeAsyncTransaction, Ryoiki } from 'dataply'
+import type {
+  DataplyTreeValue,
+  DocumentDataplyInnerMetadata,
+  DocumentDataplyOptions,
+  DocumentJSON,
+  FlattenedDocumentJSON,
+  Primitive,
+  DocumentDataplyQuery,
+  FinalFlatten,
+  DocumentDataplyCondition,
+  DataplyDocument,
+  DocumentDataplyMetadata
+} from '../types'
+import {
+  type BPTreeCondition,
+  type BPTreeOrder,
+  DataplyAPI,
+  Transaction,
+  BPTreeAsync,
+  BPTreeAsyncTransaction,
+  Ryoiki
+} from 'dataply'
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
 import { catchPromise } from '../utils/catchPromise'
@@ -508,10 +528,16 @@ export class DocumentDataply<T extends DocumentJSON> {
    * Select documents from the database
    * @param query The query to use
    * @param limit The maximum number of documents to return
+   * @param order The order to use
    * @param tx The transaction to use
    * @returns The documents that match the query
    */
-  async select(query: Partial<DocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>>>, limit: number = Infinity, tx?: Transaction): Promise<DataplyDocument<T>[]> {
+  async select(
+    query: Partial<DocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>>>,
+    limit: number = Infinity,
+    order: BPTreeOrder = 'asc',
+    tx?: Transaction
+  ): Promise<DataplyDocument<T>[]> {
     return this.api.runWithDefault(async (tx) => {
       const verbose = this.verboseQuery(query)
       const selectivity = await this.getSelectivityCandidate(verbose)
@@ -520,7 +546,7 @@ export class DocumentDataply<T extends DocumentJSON> {
 
       const keys: Set<number> = new Set()
       const { driver, others } = selectivity
-      const stream = driver.tree.whereStream(driver.condition, limit)
+      const stream = driver.tree.whereStream(driver.condition, limit, order)
 
       for await (const [pk, val] of stream) {
         let isMatch = true
