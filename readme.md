@@ -99,92 +99,32 @@ const ids = await db.insertBatch([
 
 ### Querying
 
-`document-dataply` supports various comparison operators.
+`document-dataply` supports powerful search capabilities based on B+Tree indexing.
 
 | Operator | Description |
 | :--- | :--- |
-| `lt` | Less than |
-| `lte` | Less than or equal to |
-| `gt` | Greater than |
-| `gte` | Greater than or equal to |
-| `equal` | Equal to |
-| `notEqual` | Not equal to |
-| `like` | SQL-style pattern matching (e.g., `Jo%`) |
-| `or` | If any value in the array is satisfied |
+| `lt`, `lte`, `gt`, `gte` | Comparison operations |
+| `equal`, `notEqual` | Equality check |
+| `like` | Pattern matching |
+| `or` | Matching within an array |
 
-Example of a complex query:
-```typescript
-const users = await db.select({
-  age: { gt: 18, lt: 65 },
-  'address.city': 'Seoul',
-  tags: { or: ['vip', 'premium'] }
-}).drain();
-```
-
-> [!IMPORTANT]
-> **Query Constraints**: Query conditions (`lt`, `gt`, `equal`, etc.) can only be used on fields explicitly indexed during initialization.
-> 
-> **If a field in the query is not indexed, that condition will be ignored.**
-> 
-> If you need to filter by unindexed fields, you should first retrieve the documents and then use JavaScript's native `.filter()` method.
-```typescript
-const results = await db.select({ /* indexed fields only */ }).drain();
-const filtered = results.filter(doc => doc.unindexedField === 'some-value');
-```
+For detailed operator usage, index constraints (including full scans), and sorting methods, see the [Query Guide (QUERY.md)](./docs/QUERY.md).
 
 ### Transactions
 
-To ensure the atomicity of multiple operations, use transactions.
+Ensure data integrity with ACID-compliant transactions. Use `commit()` and `rollback()` to process multiple operations atomically.
 
-```typescript
-const tx = db.createTransaction();
-try {
-  await db.insert({ name: 'Alice', age: 25 }, tx);
-  await db.insert({ name: 'Bob', age: 28 }, tx);
-  await tx.commit();
-} catch (error) {
-  await tx.rollback();
-  throw error;
-}
-```
+For detailed usage and error handling patterns, see the [Transaction Guide (TRANSACTION.md)](./docs/TRANSACTION.md).
 
 ### Updating and Deleting
 
-`document-dataply` provides flexible ways to update or delete documents matching a query. All these operations are performed in a memory-efficient streaming manner.
+`document-dataply` provides flexible ways to update or delete documents based on query results. All these operations are **Stream-based**, allowing you to handle millions of records without memory concerns.
 
-#### Partial Update
-Updates only specified fields of the matching documents.
+- **Partial Update**: Modify only specific fields or use a function for dynamic updates.
+- **Full Update**: Replace the entire document while preserving the original `_id`.
+- **Delete**: Permanently remove matching documents from both storage and indices.
 
-```typescript
-// Using an object to merge
-const count = await db.partialUpdate(
-  { name: 'John Doe' },
-  { status: 'active', updatedAt: Date.now() }
-);
-
-// Using a function for dynamic updates
-const count = await db.partialUpdate(
-  { age: { lt: 20 } },
-  (doc) => ({ age: doc.age + 1 })
-);
-```
-
-#### Full Update
-Completely replaces the documents matching the query, while preserving their original `_id`.
-
-```typescript
-const count = await db.fullUpdate(
-  { name: 'John Doe' },
-  { name: 'John Smith', age: 31, location: 'New York' }
-);
-```
-
-#### Delete
-Removes documents matching the query from both the index and storage.
-
-```typescript
-const deletedCount = await db.delete({ status: 'inactive' });
-```
+For details on streaming mechanisms and bandwidth optimization tips, see the [Stream Guide (STREAM.md)](./docs/STREAM.md).
 
 ## Tips and Advanced Features
 
@@ -206,13 +146,13 @@ Creates or opens a database instance. `T` defines the document structure.
 Initializes the database, sets up internal metadata, and prepares indices.
 
 ### `db.insert(document, tx?)`
-Inserts a single document. Returns the `_id` (`number`) of the document.
+Inserts a single document. Each document is automatically assigned a unique, immutable `_id` field. The method returns this `_id` (`number`).
 
 ### `db.insertBatch(documents, tx?)`
 Inserts multiple documents efficiently. Returns an array of `_ids` (`number[]`).
 
 ### `db.select(query, options?, tx?)`
-Searches for documents matching the query.
+Searches for documents matching the query. Passing an empty object (`{}`) as the `query` retrieves all documents.
 Returns an object `{ stream, drain }`.
 - `stream`: An async iterator to traverse results one by one.
 - `drain()`: A promise that resolves to an array of all matching documents.

@@ -2,44 +2,19 @@
 
 This document covers advanced features and performance optimization tips for using `document-dataply` more effectively.
 
-## 1. Query Optimization
+## 1. Query Optimization and Sorting
 
-### Automatic Index Selection (Selectivity)
-When performing queries on multiple fields, the engine internally calculates **Selectivity**.
-It automatically selects the index that can reduce the result set the most when filtered first (i.e., the field with the most unique values) as the driver to start the lookup.
+- **Automatic Index Selection**: The engine automatically selects the index with the highest selectivity.
+- **Sorting Constraints**: Fields used in `orderBy` must be indexed.
 
-> [!TIP]
-> Users do not need to worry about the order of conditions in the query. The engine automatically finds the most efficient path.
+For more details, see the [Query Guide (QUERY.md)](./QUERY.md).
 
-## 2. Sorting & Pagination
+## 2. Memory Management (Stream vs drain)
 
-You can control sorting and pagination through the `options` argument, which is the second parameter of the `select` function.
+- **Small Datasets**: Using `drain()` to retrieve an array is convenient.
+- **Large Datasets**: Use `stream` to minimize memory usage.
 
-```typescript
-const results = await db.select(
-  { category: 'electronics' },
-  {
-    limit: 10,           // Retrieve a maximum of 10 results
-    orderBy: 'price',    // Sort based on the 'price' field (requires index)
-    sortOrder: 'desc'    // Descending order ('asc' or 'desc')
-  }
-).drain();
-```
-
-> The field used in `orderBy` must have an index created during initialization. If you attempt to sort by a field without an index, it will default to sorting by `_id`.
-
-## 3. Memory Management: `stream` vs `drain()`
-
-- **`drain()`**: Loads all results into memory as an array. It's convenient when the amount of data is small, but fetching tens of thousands of documents at once can lead to Out Of Memory (OOM) issues.
-- **`stream`**: Processes documents one by one as they are found via an async iterator. This is highly efficient for batch processing large datasets or streaming data over a network.
-
-```typescript
-// Recommended approach for large data processing
-for await (const doc of db.select({ status: 'active' }).stream) {
-  // Only one document is kept in memory at a time
-  await processLargeData(doc);
-}
-```
+For more details, see the [Stream Guide (STREAM.md)](./STREAM.md).
 
 ## 4. Bulk Insertion Performance (Massive Insertion)
 
