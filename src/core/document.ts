@@ -799,7 +799,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
     }
 
     // 런타임 검증: orderBy 필드가 인덱스된 필드인지 확인
-    const orderBy = options.orderBy ?? '_id'
+    const orderBy = options.orderBy
     if (!this.indexedFields.has(orderBy as string)) {
       throw new Error(`orderBy field "${orderBy}" is not indexed. Available indexed fields: ${Array.from(this.indexedFields).join(', ')}`)
     }
@@ -818,63 +818,46 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
       const verbose = self.verboseQuery(normalizedQuery)
 
-      // orderBy 필드에 인덱스가 있는지 확인
-      const orderByTree = self.api.trees.get(orderBy as string)
-
       // orderBy 인덱스가 있고 쿼리 조건에 포함되면 해당 필드 우선 사용
       const selectivity = await self.getSelectivityCandidate(
         verbose,
-        orderByTree ? (orderBy as string) : undefined
+        orderBy,
       )
 
       // 인덱스가 없을 경우 조회를 취소합니다
       if (!selectivity) return
 
       const { driver, others } = selectivity
-      const isDriverOrderByField = orderByTree && driver.field === orderBy
+      const isDriverOrderByField = orderBy === undefined || driver.field === orderBy
 
+      // Case 1: driver가 orderBy 필드, 또는 지정된 필드가 없음
+      // → B+Tree 역순 조회 활용, 재정렬 불필요
       if (isDriverOrderByField) {
-        // Case 1: driver가 orderBy 필드 → B+Tree 역순 조회 활용, 재정렬 불필요
-        const driverStream = driver.tree.whereStream(driver.condition as any, limit, sortOrder)
+        let keys = await driver.tree.keys(driver.condition, undefined, sortOrder)
+        for (const { tree, condition } of others) {
+          keys = await tree.keys(condition, keys, sortOrder)
+        }
 
         let i = 0
-        for await (const [pk, val] of driverStream) {
+        for (const key of keys) {
           if (i >= limit) break
-          let isMatch = true
-          for (const { tree, condition } of others) {
-            const targetValue = await tree.get(pk)
-            if (targetValue === undefined || !tree.verify(targetValue, condition as any)) {
-              isMatch = false
-              break
-            }
-          }
-          if (isMatch) {
-            const stringified = await self.api.select(pk, false, tx)
-            if (!stringified) continue
-            yield JSON.parse(stringified)
-            i++
-          }
+          const stringified = await self.api.select(key, false, tx)
+          if (!stringified) continue
+          yield JSON.parse(stringified)
+          i++
         }
       }
+      // Case 2: driver와 다름 → 메모리 내 재정렬 필요
       else {
-        // Case 2: driver와 다름 → 메모리 내 재정렬 필요
         const results: DataplyDocument<T>[] = []
-        const driverStream = driver.tree.whereStream(driver.condition as any)
-
-        for await (const [pk, val] of driverStream) {
-          let isMatch = true
-          for (const { tree, condition } of others) {
-            const targetValue = await tree.get(pk)
-            if (targetValue === undefined || !tree.verify(targetValue, condition as any)) {
-              isMatch = false
-              break
-            }
-          }
-          if (isMatch) {
-            const stringified = await self.api.select(pk, false, tx)
-            if (!stringified) continue
-            results.push(JSON.parse(stringified))
-          }
+        let keys = await driver.tree.keys(driver.condition, undefined)
+        for (const { tree, condition } of others) {
+          keys = await tree.keys(condition, keys)
+        }
+        for (const key of keys) {
+          const stringified = await self.api.select(key, false, tx)
+          if (!stringified) continue
+          results.push(JSON.parse(stringified))
         }
 
         // 정렬: orderBy 필드로 정렬 (인덱스 없으면 문서 필드로 직접 정렬)

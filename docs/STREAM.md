@@ -12,6 +12,9 @@ The most recommended way to retrieve data is through **`stream`**. This method d
 - **Extremely Low Memory Usage**: Even with tens of thousands of results, only the document currently being processed is held in memory.
 - **Immediate Responsiveness**: Processing can begin as soon as the first document is loaded, without waiting for the entire dataset to be read.
 
+> [!CAUTION]
+> **`orderBy` Negates Stream Benefits**: When `orderBy` is specified, the streaming performance advantage is lost. This is because the underlying B+Tree structure returns documents in an internal order, not the requested sort order. To fulfill the `orderBy` request, all matching documents must first be loaded into memory, sorted, and then returned sequentially. Therefore, for optimal streaming performance, avoid using `orderBy` when processing large datasets.
+
 ### Usage Example
 You can easily use the `for await...of` syntax to iterate through results as if they were in a standard array.
 

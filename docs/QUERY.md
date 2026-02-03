@@ -78,11 +78,11 @@ const results = await db.select(
 ```
 
 > [!NOTE]
-> The field specified in `orderBy` must have an index created during initialization. If you attempt to sort by an unindexed field, it will default to sorting by `_id`.
+> The field specified in `orderBy` must have an index created during initialization. If you attempt to sort by an unindexed field or do not specify `orderBy`, documents will be returned based on internal rules and the order is not guaranteed.
 
 ## 5. Nested Fields and the Default Field (`_id`)
 
-- **`_id` Field**: All documents are automatically assigned a unique, numeric `_id` field by the system upon insertion. This field always exists and can be used for querying or as a default sorting key. **Note: The `_id` field is system-managed; users cannot set it manually or modify it later.**
+- **`_id` Field**: All documents are automatically assigned a unique, numeric `_id` field by the system upon insertion. This field always exists and can be used for querying. **Note: The `_id` field is system-managed; users cannot set it manually or modify it later.**
 - **Nested Fields**: Fields deep within a document or specific array elements can be queried if they are indexed.
 
 ```typescript
