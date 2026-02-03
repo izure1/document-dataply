@@ -200,7 +200,7 @@ For more information on performance optimization and advanced features, see [TIP
 
 ### `DocumentDataply.Define<T>().Options(options).Open(file)`
 Creates or opens a database instance. `T` defines the document structure.
-`options.indices` is an object where keys are field names and values are booleans indicating whether to index.
+`options.indices` is an object where keys are field names and values are booleans indicating the [Indexing Policy](#indexing-policies).
 
 ### `db.init()`
 Initializes the database, sets up internal metadata, and prepares indices.
