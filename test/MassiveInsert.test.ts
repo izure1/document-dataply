@@ -21,7 +21,11 @@ type MassiveDoc = {
 
 describe('Massive Data Insertion', () => {
   const dbPath = path.join(__dirname, 'test_massive.db')
-  let db: DocumentDataply<MassiveDoc>
+  let db: DocumentDataply<MassiveDoc, {
+    age: true
+    gender: true
+    company: true
+  }>
 
   // Increase timeout for massive operation (5 minutes)
   jest.setTimeout(300000)
@@ -60,14 +64,14 @@ describe('Massive Data Insertion', () => {
   })
 
   test('should insert 10,000 documents', async () => {
-    db = new DocumentDataply(dbPath, {
+    db = DocumentDataply.Define<MassiveDoc>().Options({
       wal: dbPath + '.wal',
       indices: {
         age: true,
         gender: true,
         company: true
       }
-    })
+    }).Open(dbPath)
     await db.init()
 
     const BATCH_SIZE = 1000

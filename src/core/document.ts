@@ -6,12 +6,13 @@ import type {
   FlattenedDocumentJSON,
   Primitive,
   DocumentDataplyQuery,
+  DocumentDataplyIndexedQuery,
   FinalFlatten,
   DocumentDataplyCondition,
   DataplyDocument,
   DocumentDataplyMetadata,
   DocumentDataplyQueryOptions,
-  IndexedDocumentDataplyQuery
+  IndexConfig
 } from '../types'
 import {
   type BPTreeCondition,
@@ -25,7 +26,7 @@ import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
 import { catchPromise } from '../utils/catchPromise'
 
-export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
+export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T>> extends DataplyAPI {
   declare runWithDefault
   declare streamWithDefault
 
@@ -35,7 +36,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   private pendingBackfillFields: string[] = []
   private readonly lock: Ryoiki
 
-  constructor(file: string, options: DocumentDataplyOptions<T>) {
+  constructor(file: string, options: DocumentDataplyOptions<T, IC>) {
     super(file, options)
     this.trees = new Map()
     this.lock = new Ryoiki()
@@ -47,7 +48,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         throw new Error('Document metadata verification failed')
       }
       const metadata = await this.getDocumentInnerMetadata(tx)
-      const optionsIndices = (options as DocumentDataplyOptions<T>).indices ?? {}
+      const optionsIndices = (options as DocumentDataplyOptions<T, IC>).indices ?? {}
       const targetIndices: { [key: string]: boolean } = {
         ...optionsIndices,
         _id: true
@@ -303,8 +304,51 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   }
 }
 
-export class DocumentDataply<T extends DocumentJSON, I extends string = keyof FinalFlatten<T> & string> {
-  protected readonly api: DocumentDataplyAPI<T>
+export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> {
+  /**
+   * Starts the database definition by setting the document type.
+   * This is used to ensure TypeScript type inference works correctly for the document structure.
+   * @template T The structure of the document to be stored.
+   */
+  static Define<T extends DocumentJSON>() {
+    return {
+      /**
+       * Sets the options for the database, such as index configurations and WAL settings.
+       * @template IC The configuration of indices.
+       * @param options The database initialization options.
+       */
+      Options: <IC extends IndexConfig<T>>(
+        options: DocumentDataplyOptions<T, IC>
+      ) => DocumentDataply.Options<T, IC>(options)
+    }
+  }
+
+  /**
+   * Internal method used by the Define-chain to pass options.
+   */
+  private static Options<T extends DocumentJSON, IC extends IndexConfig<T>>(
+    options: DocumentDataplyOptions<T, IC>
+  ) {
+    return {
+      /**
+       * Creates or opens the database instance with the specified file path.
+       * @param file The path to the database file.
+       */
+      Open: (file: string) => DocumentDataply.Open<T, IC>(file, options)
+    }
+  }
+
+  /**
+   * Internal method used to finalize construction and create the instance.
+   */
+  private static Open<T extends DocumentJSON, IC extends IndexConfig<T>>(
+    file: string,
+    options: DocumentDataplyOptions<T, IC>
+  ) {
+    return new DocumentDataply<T, IC>(file, options)
+  }
+
+  protected readonly api: DocumentDataplyAPI<T, IC>
   private readonly indexedFields: Set<string>
   private readonly operatorConverters: Record<
     keyof DocumentDataplyCondition<FinalFlatten<T>>,
@@ -320,8 +364,8 @@ export class DocumentDataply<T extends DocumentJSON, I extends string = keyof Fi
       like: 'like',
     }
 
-  constructor(file: string, options?: DocumentDataplyOptions<T>) {
-    this.api = new DocumentDataplyAPI(file, options ?? {})
+  protected constructor(file: string, options?: DocumentDataplyOptions<T, IC>) {
+    this.api = new DocumentDataplyAPI(file, options ?? {} as any)
     // indices에 지정된 필드들을 저장 (_id는 항상 포함)
     this.indexedFields = new Set(['_id'])
     if (options?.indices) {
@@ -354,7 +398,7 @@ export class DocumentDataply<T extends DocumentJSON, I extends string = keyof Fi
   }
 
   private verboseQuery<
-    U extends Partial<IndexedDocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>, I>>,
+    U extends Partial<DocumentDataplyIndexedQuery<T, IC>>,
     V extends DataplyTreeValue<U>
   >(
     query: Partial<DocumentDataplyQuery<U>>
@@ -396,7 +440,7 @@ export class DocumentDataply<T extends DocumentJSON, I extends string = keyof Fi
    * @returns Driver and other candidates for query execution
    */
   async getSelectivityCandidate<
-    U extends Partial<IndexedDocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>, I>>,
+    U extends Partial<DocumentDataplyIndexedQuery<T, IC>>,
     V extends DataplyTreeValue<U>
   >(
     query: Partial<DocumentDataplyQuery<V>>,
@@ -574,8 +618,8 @@ export class DocumentDataply<T extends DocumentJSON, I extends string = keyof Fi
    * @throws Error if query or orderBy contains non-indexed fields
    */
   select(
-    query: Partial<IndexedDocumentDataplyQuery<FinalFlatten<DataplyDocument<T>>, I>>,
-    options: DocumentDataplyQueryOptions<FinalFlatten<DataplyDocument<T>>, I> = {},
+    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    options: DocumentDataplyQueryOptions<T, IC> = {},
     tx?: Transaction
   ): {
     stream: AsyncIterableIterator<DataplyDocument<T>>

@@ -10,7 +10,11 @@ type DataDoc = {
 
 describe('DocumentDataply Query Operators', () => {
   const dbPath = path.join(__dirname, 'test_query.db')
-  let db: DocumentDataply<DataDoc>
+  let db: DocumentDataply<DataDoc, {
+    score: true
+    category: true
+    active: true
+  }>
 
   // Helper to initialize data for each test
   async function initData() {
@@ -25,13 +29,13 @@ describe('DocumentDataply Query Operators', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = new DocumentDataply(dbPath, {
+    db = DocumentDataply.Define<DataDoc>().Options({
       indices: {
         score: true,
         category: true,
         active: true,
       }
-    })
+    }).Open(dbPath)
     await db.init()
     await initData()
   })

@@ -24,13 +24,13 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should insert and query with enabled index', async () => {
-    const db = new DocumentDataply<TestDoc>(DB_PATH, {
+    const db = DocumentDataply.Define<TestDoc>().Options({
       indices: {
         name: true
       }
-    })
-    await db.init()
+    }).Open(DB_PATH)
 
+    await db.init()
     await db.insert({ name: 'Alice', age: 30 })
     await db.insert({ name: 'Bob', age: 25 })
 
@@ -39,7 +39,7 @@ describe('Document Indexing Options', () => {
     expect(results[0].name).toBe('Alice')
 
     // Age has no index, so querying by age should throw error (current limitation/design)
-    expect(() => db.select({ age: 30 })).toThrow()
+    expect(() => db.select({ age: 30 } as any)).toThrow()
 
     await db.close()
   })
@@ -47,11 +47,11 @@ describe('Document Indexing Options', () => {
   test('Should backfill index when option is enabled later', async () => {
     // 1. Start without index (name: false means index new inserts but don't backfill)
     // For this test, we DON'T include name in indecies at all initially
-    let db = new DocumentDataply<TestDoc>(DB_PATH, {
+    let db = DocumentDataply.Define<TestDoc>().Options({
       indices: {
         // name not included - no tree created
       }
-    })
+    }).Open(DB_PATH)
     await db.init()
     const pk1 = await db.insert({ name: 'Charlie', age: 40 })
     const pk2 = await db.insert({ name: 'David', age: 45 })
@@ -61,11 +61,11 @@ describe('Document Indexing Options', () => {
     await db.close()
 
     // 2. Restart with index enabled (name: true) -> Backfill should trigger
-    db = new DocumentDataply<TestDoc>(DB_PATH, {
+    db = DocumentDataply.Define<TestDoc>().Options({
       indices: {
         name: true
       }
-    })
+    }).Open(DB_PATH)
     await db.init()
 
     // Now query should work because backfill happened
@@ -83,11 +83,11 @@ describe('Document Indexing Options', () => {
 
   test('Should index new inserts with false option but not backfill old data', async () => {
     // 1. Start with name: true, insert data
-    let db = new DocumentDataply<TestDoc>(DB_PATH, {
+    let db = DocumentDataply.Define<TestDoc>().Options({
       indices: {
         name: true
       }
-    })
+    }).Open(DB_PATH)
     await db.init()
     await db.insert({ name: 'Frank', age: 50 })
 
@@ -99,11 +99,11 @@ describe('Document Indexing Options', () => {
     // 2. Restart with name: false
     // According to readme: false means "don't backfill old data, but index new inserts"
     // Since data was already indexed before, query should still work
-    db = new DocumentDataply<TestDoc>(DB_PATH, {
+    db = DocumentDataply.Define<TestDoc>().Options({
       indices: {
         name: false
       }
-    })
+    }).Open(DB_PATH)
     await db.init()
 
     // Previously indexed data should still be queryable (tree is loaded)
@@ -119,11 +119,11 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should not create index tree when field is not in indecies', async () => {
-    const db = new DocumentDataply<TestDoc>(DB_PATH, {
+    const db = DocumentDataply.Define<TestDoc>().Options({
       indices: {
         // name not included at all
       }
-    })
+    }).Open(DB_PATH)
     await db.init()
     await db.insert({ name: 'Henry', age: 60 })
 

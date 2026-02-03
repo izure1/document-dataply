@@ -26,8 +26,7 @@ const results = await db.select(
 ).drain();
 ```
 
-> [!IMPORTANT]
-> The field used in `orderBy` must have an index created in the constructor options. If you attempt to sort by a field without an index, it will default to sorting by `_id`.
+> The field used in `orderBy` must have an index created during initialization. If you attempt to sort by a field without an index, it will default to sorting by `_id`.
 
 ## 3. Memory Management: `stream` vs `drain()`
 
@@ -60,12 +59,12 @@ If you add a new field to the `indices` option during database initialization, t
 
 ```typescript
 // Example: Adding an index for a previously non-existent 'email' field
-const db = new DocumentDataply(file, {
+const db = DocumentDataply.Define<MyDoc>().Options({
   indices: {
     name: true,
     email: true // Newly added. Automatically creates an index for existing data when init() is called.
   }
-});
+}).Open(file);
 await db.init();
 ```
 

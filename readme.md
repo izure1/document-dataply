@@ -33,14 +33,14 @@ type MyDocument = {
 }
 
 async function main() {
-  const db = new DocumentDataply<MyDocument>('my-database.db', {
+  const db = DocumentDataply.Define<MyDocument>().Options({
     wal: 'my-database.wal',
     indices: {
       name: true, // Index both existing and new data
       age: false, // Index only new data
       'tags.0': true // Index the first element of the 'tags' array
     }
-  });
+  }).Open('my-database.db');
 
   // Initialize database
   await db.init();
@@ -78,7 +78,7 @@ main();
 
 ### Indexing Policies
 
-When defining indices in the constructor, you can specify a boolean value.
+When defining indices in the `options`, you can specify a boolean value.
 
 - `true`: The library indexes all existing documents for that field during `init()`, and also indexes all subsequent insertions.
 - `false`: The library only indexes documents inserted after this configuration.
@@ -122,7 +122,7 @@ const users = await db.select({
 ```
 
 > [!IMPORTANT]
-> **Query Constraints**: Query conditions (`lt`, `gt`, `equal`, etc.) can only be used on fields explicitly indexed in the constructor.
+> **Query Constraints**: Query conditions (`lt`, `gt`, `equal`, etc.) can only be used on fields explicitly indexed during initialization.
 > 
 > **If a field in the query is not indexed, that condition will be ignored.**
 > 
@@ -160,8 +160,8 @@ For more information on performance optimization and advanced features, see [TIP
 
 ## API Reference
 
-### `new DocumentDataply<T>(file, options)`
-Creates a new database instance. `T` defines the document structure.
+### `DocumentDataply.Define<T>().Options(options).Open(file)`
+Creates or opens a database instance. `T` defines the document structure.
 `options.indices` is an object where keys are field names and values are booleans indicating whether to index.
 
 ### `db.init()`

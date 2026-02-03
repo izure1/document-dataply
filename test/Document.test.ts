@@ -1,6 +1,6 @@
 import { DocumentDataply } from '../src/core/document'
-import * as fs from 'fs'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 type UserDoc = {
   name?: string
@@ -17,24 +17,22 @@ type UserDoc = {
 
 describe('DocumentDataply Basic CRUD', () => {
   const dbPath = path.join(__dirname, 'test_basic.db')
-  let db: DocumentDataply<UserDoc>
+  let db: DocumentDataply<UserDoc, {
+    name: true
+    age: true
+    city: true
+    'user.profile.nickname': true
+    'user.profile.level': true
+    'tags.0': true
+    'tags.1': true
+    'tags.5': true
+  }>
 
   beforeEach(async () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = new DocumentDataply<{
-      name: string
-      age: number
-      city: string
-      user: {
-        profile: {
-          nickname: string
-          level: number
-        }
-      }
-      tags: string[]
-    }>(dbPath, {
+    db = DocumentDataply.Define<UserDoc>().Options({
       indices: {
         name: true,
         age: true,
@@ -45,7 +43,7 @@ describe('DocumentDataply Basic CRUD', () => {
         'tags.1': true,
         'tags.5': true,
       }
-    })
+    }).Open(dbPath)
     await db.init()
   })
 

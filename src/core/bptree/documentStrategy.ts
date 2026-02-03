@@ -5,8 +5,8 @@ import { DocumentDataplyAPI } from '../document'
 export class DocumentSerializeStrategyAsync<T extends Primitive> extends SerializeStrategyAsync<number, DataplyTreeValue<T>> {
   constructor(
     order: number,
-    protected readonly api: DocumentDataplyAPI<any>,
-    protected readonly txContext: DocumentDataplyAPI<any>['txContext'],
+    protected readonly api: DocumentDataplyAPI<any, any>,
+    protected readonly txContext: DocumentDataplyAPI<any, any>['txContext'],
     public readonly treeKey: string
   ) {
     super(order)

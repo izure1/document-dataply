@@ -50,12 +50,6 @@ export type DocumentDataplyCondition<V> = {
   like?: string
 }
 
-export type DocumentDataplyQueryOptions<V, I extends string = string> = {
-  limit?: number
-  orderBy?: I | '_id'
-  sortOrder?: BPTreeOrder
-}
-
 export type DocumentDataplyQuery<T> = {
   [key in keyof T]?: T[key] | DocumentDataplyCondition<T[key]>
 } & {
@@ -63,17 +57,29 @@ export type DocumentDataplyQuery<T> = {
 }
 
 /**
- * Query type restricted to indexed fields only (+ _id)
+ * Query type restricted to indexed fields only
  */
-export type IndexedDocumentDataplyQuery<T, I extends string> = {
-  [key in (I | '_id')]?: key extends keyof T
-  ? T[key] | DocumentDataplyCondition<T[key]>
-  : never
-}
+export type DocumentDataplyIndexedQuery<
+  T extends DocumentJSON,
+  IC extends IndexConfig<T>
+> = {
+    [key in keyof IC]: key extends keyof FinalFlatten<DataplyDocument<T>>
+    ? FinalFlatten<DataplyDocument<T>>[key] | DocumentDataplyCondition<FinalFlatten<DataplyDocument<T>>[key]>
+    : never
+  }
 
 export interface DataplyTreeValue<T> {
   k: number
   v: T
+}
+
+export type DocumentDataplyQueryOptions<
+  T extends DocumentJSON,
+  IC extends IndexConfig<T>
+> = {
+  limit?: number
+  orderBy?: ExtractIndexKeys<T, IC> | '_id'
+  sortOrder?: BPTreeOrder
 }
 
 /**
@@ -85,7 +91,7 @@ type Prev = [never, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
  * T가 객체인지 확인하고, 객체라면 하위 키를 재귀적으로 탐색합니다.
  * Depth 제한을 두어 "Type instantiation is excessively deep and possibly infinite" 에러를 방지합니다.
  */
-export type DeepFlattenKeys<T, Prefix extends string = "", D extends number = 12> =
+export type DeepFlattenKeys<T, Prefix extends string = "", D extends number = 5> =
   [D] extends [0] ? never :
   T extends Primitive ? (Prefix extends `${infer P}.` ? P : never)
   : T extends readonly any[] ? (
@@ -127,14 +133,34 @@ export type FinalFlatten<T> = {
   [P in DeepFlattenKeys<T>]: GetTypeByPath<T, P & string>
 }
 
-export interface DocumentDataplyOptions<T> extends DataplyOptions {
+export type DocumentDataplyIndices<T extends DocumentJSON, IC extends IndexConfig<T>> = {
+  [key in keyof IC & keyof FinalFlatten<T>]: GetTypeByPath<T, key>
+}
+
+/**
+ * Index configuration type - keys are field names, values are boolean
+ */
+export type IndexConfig<T> = Partial<{
+  [key in keyof FinalFlatten<T>]: boolean
+}>
+
+/**
+ * Extract index keys from IndexConfig
+ */
+export type ExtractIndexKeys<
+  T extends DocumentJSON,
+  IC extends IndexConfig<T>
+> = keyof IC & keyof FinalFlatten<DataplyDocument<T>> & string
+
+export interface DocumentDataplyOptions<
+  T,
+  IC extends IndexConfig<T> = IndexConfig<T>
+> extends DataplyOptions {
   /**
-   * Indecies to create when initializing the database.
-   * If not specified, no indecies will be created.
+   * Indices to create when initializing the database.
+   * If not specified, no indices will be created.
    * If the value of the index is `true`, the index will be created for the already inserted data.
    * If the value of the index is `false`, the index will not be created for the already inserted data.
    */
-  indices?: Partial<{
-    [key in keyof FinalFlatten<T>]: boolean
-  }>
+  indices?: IC
 }
