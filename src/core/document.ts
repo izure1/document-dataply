@@ -610,6 +610,172 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
   }
 
   /**
+   * Internal update method used by both fullUpdate and partialUpdate
+   * @param query The query to use
+   * @param computeUpdatedDoc Function that computes the updated document from the original
+   * @param tx The transaction to use
+   * @returns The number of updated documents
+   */
+  private async updateInternal(
+    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    computeUpdatedDoc: (doc: DataplyDocument<T>) => DataplyDocument<T>,
+    tx: Transaction
+  ): Promise<number> {
+    // 1. _id 트리 확인
+    const idTree = this.api.trees.get('_id')
+    if (!idTree) {
+      throw new Error('ID tree not found')
+    }
+
+    // 2. 업데이트할 문서들을 stream으로 순회
+    const { stream } = this.select(query, {}, tx)
+    let updatedCount = 0
+
+    for await (const doc of stream) {
+      const id = doc._id
+
+      // 2.1 _id 트리에서 pk 찾기
+      let pk: number | null = null
+      for await (const [entryPk] of idTree.whereStream({ primaryEqual: { v: id } })) {
+        pk = entryPk
+        break
+      }
+
+      if (pk === null) continue
+
+      // 2.2 새 문서 계산
+      const updatedDoc = computeUpdatedDoc(doc)
+
+      const oldFlatDoc = this.api.flattenDocument(doc)
+      const newFlatDoc = this.api.flattenDocument(updatedDoc)
+
+      // 2.3 변경된 인덱스 필드에 대해 삭제 후 삽입
+      for (const [field, tree] of this.api.trees) {
+        const oldV = oldFlatDoc[field]
+        const newV = newFlatDoc[field]
+
+        // 값이 동일하면 인덱스 업데이트 불필요
+        if (oldV === newV) continue
+
+        // 기존 값 삭제
+        if (oldV !== undefined) {
+          await tree.delete(pk, { k: pk, v: oldV })
+        }
+
+        // 새 값 삽입
+        if (newV !== undefined) {
+          await tree.insert(pk, { k: pk, v: newV })
+        }
+      }
+
+      // 2.4 실제 레코드 업데이트
+      await this.api.update(pk, JSON.stringify(updatedDoc), tx)
+      updatedCount++
+    }
+
+    return updatedCount
+  }
+
+  /**
+   * Fully update documents from the database that match the query
+   * @param query The query to use (only indexed fields + _id allowed)
+   * @param newRecord Complete document to replace with, or function that receives current document and returns new document
+   * @param tx The transaction to use
+   * @returns The number of updated documents
+   */
+  async fullUpdate(
+    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    newRecord: T | ((document: DataplyDocument<T>) => T),
+    tx?: Transaction
+  ): Promise<number> {
+    return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
+      return this.updateInternal(query, (doc) => {
+        const newDoc = typeof newRecord === 'function'
+          ? newRecord(doc)
+          : newRecord
+        // _id 보존
+        return { _id: doc._id, ...newDoc } as DataplyDocument<T>
+      }, tx)
+    }, tx))
+  }
+
+  /**
+   * Partially update documents from the database that match the query
+   * @param query The query to use (only indexed fields + _id allowed)
+   * @param newRecord Partial document to merge, or function that receives current document and returns partial update
+   * @param tx The transaction to use
+   * @returns The number of updated documents
+   */
+  async partialUpdate(
+    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    newRecord: Partial<DataplyDocument<T>> | ((document: DataplyDocument<T>) => Partial<DataplyDocument<T>>),
+    tx?: Transaction
+  ): Promise<number> {
+    return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
+      return this.updateInternal(query, (doc) => {
+        const partialUpdate = typeof newRecord === 'function'
+          ? newRecord(doc)
+          : newRecord
+        // _id는 업데이트하지 않음
+        delete (partialUpdate as any)._id
+        // 기존 문서 + 부분 업데이트
+        return { ...doc, ...partialUpdate } as DataplyDocument<T>
+      }, tx)
+    }, tx))
+  }
+
+  /**
+   * Delete documents from the database that match the query
+   * @param query The query to use (only indexed fields + _id allowed)
+   * @param tx The transaction to use
+   * @returns The number of deleted documents
+   */
+  async delete(
+    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    tx?: Transaction
+  ): Promise<number> {
+    return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
+      // 1. _id 트리 확인
+      const idTree = this.api.trees.get('_id')
+      if (!idTree) {
+        throw new Error('ID tree not found')
+      }
+
+      // 2. 삭제할 문서들을 stream으로 순회하며 삭제
+      const { stream } = this.select(query, {}, tx)
+      let deletedCount = 0
+
+      for await (const doc of stream) {
+        const id = doc._id
+
+        // 2.1 _id 트리에서 pk 찾기
+        let pk: number | null = null
+        for await (const [entryPk] of idTree.whereStream({ primaryEqual: { v: id } })) {
+          pk = entryPk
+          break
+        }
+
+        if (pk === null) continue
+
+        const flatDoc = this.api.flattenDocument(doc)
+
+        // 2.2 모든 인덱스 트리에서 삭제
+        for (const [field, tree] of this.api.trees) {
+          const v = flatDoc[field]
+          if (v === undefined) continue
+          await tree.delete(pk, { k: pk, v })
+        }
+
+        // 2.3 실제 레코드 삭제
+        await this.api.delete(pk, true, tx)
+        deletedCount++
+      }
+
+      return deletedCount
+    }, tx))
+  }
+
+  /**
    * Select documents from the database
    * @param query The query to use (only indexed fields + _id allowed)
    * @param options The options to use
@@ -689,8 +855,9 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
             i++
           }
         }
-      } else {
-        // Case 2: orderBy 인덱스 없거나 driver와 다름 → 메모리 내 재정렬 필요
+      }
+      else {
+        // Case 2: driver와 다름 → 메모리 내 재정렬 필요
         const results: DataplyDocument<T>[] = []
         const driverStream = driver.tree.whereStream(driver.condition as any)
 

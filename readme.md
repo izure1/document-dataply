@@ -148,6 +148,44 @@ try {
 }
 ```
 
+### Updating and Deleting
+
+`document-dataply` provides flexible ways to update or delete documents matching a query. All these operations are performed in a memory-efficient streaming manner.
+
+#### Partial Update
+Updates only specified fields of the matching documents.
+
+```typescript
+// Using an object to merge
+const count = await db.partialUpdate(
+  { name: 'John Doe' },
+  { status: 'active', updatedAt: Date.now() }
+);
+
+// Using a function for dynamic updates
+const count = await db.partialUpdate(
+  { age: { lt: 20 } },
+  (doc) => ({ age: doc.age + 1 })
+);
+```
+
+#### Full Update
+Completely replaces the documents matching the query, while preserving their original `_id`.
+
+```typescript
+const count = await db.fullUpdate(
+  { name: 'John Doe' },
+  { name: 'John Smith', age: 31, location: 'New York' }
+);
+```
+
+#### Delete
+Removes documents matching the query from both the index and storage.
+
+```typescript
+const deletedCount = await db.delete({ status: 'inactive' });
+```
+
 ## Tips and Advanced Features
 
 For more information on performance optimization and advanced features, see [TIPS.md](./docs/TIPS.md).
@@ -178,6 +216,15 @@ Searches for documents matching the query.
 Returns an object `{ stream, drain }`.
 - `stream`: An async iterator to traverse results one by one.
 - `drain()`: A promise that resolves to an array of all matching documents.
+
+### `db.partialUpdate(query, newFields, tx?)`
+Partially updates documents matching the query. `newFields` can be a partial object or a function that returns a partial object. Returns the number of updated documents.
+
+### `db.fullUpdate(query, newDocument, tx?)`
+Fully replaces documents matching the query while preserving their `_id`. Returns the number of updated documents.
+
+### `db.delete(query, tx?)`
+Deletes documents matching the query. Returns the number of deleted documents.
 
 ### `db.getMetadata(tx?)`
 Returns physical storage information (number of pages, number of rows, etc.).
