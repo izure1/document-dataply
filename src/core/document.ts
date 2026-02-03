@@ -800,7 +800,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
     // 런타임 검증: orderBy 필드가 인덱스된 필드인지 확인
     const orderBy = options.orderBy
-    if (!this.indexedFields.has(orderBy as string)) {
+    if (orderBy !== undefined && !this.indexedFields.has(orderBy as string)) {
       throw new Error(`orderBy field "${orderBy}" is not indexed. Available indexed fields: ${Array.from(this.indexedFields).join(', ')}`)
     }
 
