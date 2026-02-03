@@ -1,4 +1,4 @@
-import { DocumentDataply } from '../src/core/document'
+import { DocumentDataply } from '../src/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 

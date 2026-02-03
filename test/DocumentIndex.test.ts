@@ -1,6 +1,6 @@
-import { DocumentDataply } from '../src/core/document'
-import * as fs from 'fs'
-import * as path from 'path'
+import { DocumentDataply } from '../src/core'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 const TEST_DIR = path.join(__dirname, 'tmp_doc_index')
 const DB_PATH = path.join(TEST_DIR, 'test.ply')
