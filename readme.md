@@ -1,3 +1,6 @@
+![node.js workflow](https://github.com/izure1/document-dataply/actions/workflows/node.js.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+
 # Document-Dataply
 
 > [!WARNING]
