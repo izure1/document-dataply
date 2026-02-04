@@ -33,7 +33,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: JavaScript Benchmark
-          tool: 'customGeneric'
+          tool: 'customSmallerIsBetter'
           output-file-path: benchmark/benchmark-results.json
           # GitHub API token to make a commit or comment with benchmark result
           github-token: ${{ secrets.GITHUB_TOKEN }}
