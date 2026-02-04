@@ -121,6 +121,16 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     })
   }
 
+  async getDocument(pk: number, tx?: Transaction): Promise<DataplyDocument<T>> {
+    return this.runWithDefault(async (tx) => {
+      const row = await this.select(pk, false, tx)
+      if (!row) {
+        throw new Error(`Document not found with PK: ${pk}`)
+      }
+      return JSON.parse(row) as DataplyDocument<T>
+    }, tx)
+  }
+
   async readLock<T>(fn: () => T): Promise<T> {
     let lockId: string
     return this.lock.readLock(async (_lockId) => {
@@ -139,16 +149,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     }).finally(() => {
       this.lock.writeUnlock(lockId)
     })
-  }
-
-  async getDocument(pk: number, tx?: Transaction): Promise<DataplyDocument<T>> {
-    return this.runWithDefault(async (tx) => {
-      const row = await this.select(pk, false, tx)
-      if (!row) {
-        throw new Error(`Document not found with PK: ${pk}`)
-      }
-      return JSON.parse(row) as DataplyDocument<T>
-    }, tx)
   }
 
   /**
@@ -455,7 +455,8 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string
-    }[]
+    }[],
+    rollback: () => void
   } | null> {
     const candidates: {
       tree: BPTreeAsync<number, V>,
@@ -466,11 +467,19 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       const tree = this.api.trees.get(field)
       if (!tree) continue
       const condition = query[field] as Partial<DocumentDataplyCondition<U>>
-      candidates.push({ tree: tree as unknown as BPTreeAsync<number, V>, condition, field })
+      const treeTx = await tree.createTransaction()
+      candidates.push({ tree: treeTx as unknown as BPTreeAsync<number, V>, condition, field })
+    }
+
+    const rollback = () => {
+      for (const { tree } of candidates) {
+        tree.rollback()
+      }
     }
 
     // 쿼리에 조건이 있지만 해당 필드에 인덱스가 없는 경우
     if (candidates.length === 0) {
+      rollback()
       return null
     }
 
@@ -480,7 +489,8 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       if (orderByCandidate) {
         return {
           driver: orderByCandidate,
-          others: candidates.filter(c => c.field !== orderByField)
+          others: candidates.filter(c => c.field !== orderByField),
+          rollback,
         }
       }
       // orderBy가 조건에 없으면 ChooseDriver로 선택도 기반 선택
@@ -502,7 +512,53 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
         tree: BPTreeAsync<number, V>,
         condition: Partial<DocumentDataplyCondition<U>>,
         field: string
-      }[]
+      }[],
+      rollback,
+    }
+  }
+
+  /**
+   * Get Primary Keys based on query and index selection.
+   * Internal common method to unify query optimization.
+   */
+  private async getKeys(
+    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    orderBy?: keyof IC | '_id',
+    sortOrder: 'asc' | 'desc' = 'asc'
+  ): Promise<Set<number>> {
+    const isQueryEmpty = Object.keys(query).length === 0
+    const normalizedQuery = isQueryEmpty
+      ? { _id: { gte: 0 } } as unknown as typeof query
+      : query
+
+    const verbose = this.verboseQuery(normalizedQuery)
+    const selectivity = await this.getSelectivityCandidate(
+      verbose,
+      orderBy as string,
+    )
+
+    if (!selectivity) return new Set<number>()
+
+    const { driver, others, rollback } = selectivity
+    const isDriverOrderByField = orderBy === undefined || driver.field === orderBy
+
+    // Case 1: Driver matches orderBy (or no orderBy) -> Straight from B+Tree
+    if (isDriverOrderByField) {
+      let keys = await driver.tree.keys(driver.condition as any, undefined, sortOrder)
+      for (const { tree, condition } of others) {
+        keys = await tree.keys(condition, keys, sortOrder)
+      }
+      rollback()
+      return keys
+    }
+    // Case 2: Driver is different -> No specific order guaranteed from trees
+    else {
+      let keys = await driver.tree.keys(driver.condition, undefined)
+      for (const { tree, condition } of others) {
+        keys = await tree.keys(condition, keys)
+      }
+      rollback()
+      return keys
     }
   }
 
@@ -603,7 +659,10 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
             console.error(`BPTree indexing failed for field: ${field}`, error)
           }
         }
-        await treeTx.commit()
+        const res = await treeTx.commit()
+        if (!res.success) {
+          throw res.error
+        }
       }
       return ids
     }, tx))
@@ -621,56 +680,56 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
     computeUpdatedDoc: (doc: DataplyDocument<T>) => DataplyDocument<T>,
     tx: Transaction
   ): Promise<number> {
-    // 1. _id 트리 확인
-    const idTree = this.api.trees.get('_id')
-    if (!idTree) {
-      throw new Error('ID tree not found')
-    }
-
-    // 2. 업데이트할 문서들을 stream으로 순회
-    const { stream } = this.select(query, {}, tx)
+    // 1. 대상 PK 목록 확보 (인덱스 전용 검색 최적화)
+    const pks = await this.getKeys(query)
     let updatedCount = 0
 
-    for await (const doc of stream) {
-      const id = doc._id
+    const treeTxs = new Map<string, BPTreeAsyncTransaction<number, DataplyTreeValue<any>>>()
+    for (const [field, tree] of this.api.trees) {
+      treeTxs.set(field, await tree.createTransaction())
+    }
+    treeTxs.delete('_id')
 
-      // 2.1 _id 트리에서 pk 찾기
-      let pk: number | null = null
-      for await (const [entryPk] of idTree.whereStream({ primaryEqual: { v: id } })) {
-        pk = entryPk
-        break
-      }
+    for (const pk of pks) {
+      // 1.1 문서 직접 로드 (PK 알고 있으므로 인덱스 재검색 불필요)
+      const doc = await this.api.getDocument(pk, tx)
+      if (!doc) continue
 
-      if (pk === null) continue
-
-      // 2.2 새 문서 계산
+      // 1.2 새 문서 계산
       const updatedDoc = computeUpdatedDoc(doc)
-
       const oldFlatDoc = this.api.flattenDocument(doc)
       const newFlatDoc = this.api.flattenDocument(updatedDoc)
 
-      // 2.3 변경된 인덱스 필드에 대해 삭제 후 삽입
-      for (const [field, tree] of this.api.trees) {
+      // 1.3 변경된 인덱스 필드 동기화
+      for (const [field, treeTx] of treeTxs) {
         const oldV = oldFlatDoc[field]
         const newV = newFlatDoc[field]
 
-        // 값이 동일하면 인덱스 업데이트 불필요
         if (oldV === newV) continue
 
         // 기존 값 삭제
-        if (oldV !== undefined) {
-          await tree.delete(pk, { k: pk, v: oldV })
+        if (field in oldFlatDoc) {
+          await treeTx.delete(pk, { k: pk, v: oldV })
         }
-
         // 새 값 삽입
-        if (newV !== undefined) {
-          await tree.insert(pk, { k: pk, v: newV })
+        if (field in newFlatDoc) {
+          await treeTx.insert(pk, { k: pk, v: newV })
         }
       }
 
-      // 2.4 실제 레코드 업데이트
+      // 1.4 실제 레코드 업데이트
       await this.api.update(pk, JSON.stringify(updatedDoc), tx)
       updatedCount++
+    }
+
+    for (const [field, treeTx] of treeTxs) {
+      const result = await treeTx.commit()
+      if (!result.success) {
+        for (const rollbackTx of treeTxs.values()) {
+          rollbackTx.rollback()
+        }
+        throw result.error
+      }
     }
 
     return updatedCount
@@ -688,7 +747,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
     newRecord: T | ((document: DataplyDocument<T>) => T),
     tx?: Transaction
   ): Promise<number> {
-    return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
+    return await this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
       return this.updateInternal(query, (doc) => {
         const newDoc = typeof newRecord === 'function'
           ? newRecord(doc)
@@ -735,38 +794,25 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
     tx?: Transaction
   ): Promise<number> {
     return this.api.writeLock(() => this.api.runWithDefault(async (tx) => {
-      // 1. _id 트리 확인
-      const idTree = this.api.trees.get('_id')
-      if (!idTree) {
-        throw new Error('ID tree not found')
-      }
-
-      // 2. 삭제할 문서들을 stream으로 순회하며 삭제
-      const { stream } = this.select(query, {}, tx)
+      // 1. 삭제할 대상 PK 목록 확보
+      const pks = await this.getKeys(query)
       let deletedCount = 0
 
-      for await (const doc of stream) {
-        const id = doc._id
-
-        // 2.1 _id 트리에서 pk 찾기
-        let pk: number | null = null
-        for await (const [entryPk] of idTree.whereStream({ primaryEqual: { v: id } })) {
-          pk = entryPk
-          break
-        }
-
-        if (pk === null) continue
+      for (const pk of pks) {
+        // 1.1 문서 정보 확보 (인덱스 삭제를 위함)
+        const doc = await this.api.getDocument(pk, tx)
+        if (!doc) continue
 
         const flatDoc = this.api.flattenDocument(doc)
 
-        // 2.2 모든 인덱스 트리에서 삭제
+        // 1.2 모든 인덱스 트리에서 삭제
         for (const [field, tree] of this.api.trees) {
           const v = flatDoc[field]
           if (v === undefined) continue
           await tree.delete(pk, { k: pk, v })
         }
 
-        // 2.3 실제 레코드 삭제
+        // 1.3 실제 레코드 삭제
         await this.api.delete(pk, true, tx)
         deletedCount++
       }
@@ -806,54 +852,31 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
     const {
       limit = Infinity,
-      sortOrder = 'asc'
+      sortOrder = 'asc',
+      orderBy: orderByField
     } = options
+
     const self = this
     const stream = this.api.streamWithDefault(async function* (tx) {
-      // 빈 쿼리일 경우 { _id: { gte: 0 } }로 변환하여 전체 조회
-      const isQueryEmpty = Object.keys(query).length === 0
-      const normalizedQuery = isQueryEmpty
-        ? { _id: { gte: 0 } } as unknown as typeof query
-        : query
+      const keys = await self.getKeys(query, orderByField, sortOrder)
 
-      const verbose = self.verboseQuery(normalizedQuery)
-
-      // orderBy 인덱스가 있고 쿼리 조건에 포함되면 해당 필드 우선 사용
+      // Case: Needs in-memory sorting
       const selectivity = await self.getSelectivityCandidate(
-        verbose,
-        orderBy,
+        self.verboseQuery(query),
+        orderByField
+      )
+      const isDriverOrderByField = (
+        orderByField === undefined ||
+        selectivity && selectivity.driver.field === orderByField
       )
 
-      // 인덱스가 없을 경우 조회를 취소합니다
-      if (!selectivity) return
-
-      const { driver, others } = selectivity
-      const isDriverOrderByField = orderBy === undefined || driver.field === orderBy
-
-      // Case 1: driver가 orderBy 필드, 또는 지정된 필드가 없음
-      // → B+Tree 역순 조회 활용, 재정렬 불필요
-      if (isDriverOrderByField) {
-        let keys = await driver.tree.keys(driver.condition, undefined, sortOrder)
-        for (const { tree, condition } of others) {
-          keys = await tree.keys(condition, keys, sortOrder)
-        }
-
-        let i = 0
-        for (const key of keys) {
-          if (i >= limit) break
-          const stringified = await self.api.select(key, false, tx)
-          if (!stringified) continue
-          yield JSON.parse(stringified)
-          i++
-        }
+      if (selectivity) {
+        selectivity.rollback()
       }
-      // Case 2: driver와 다름 → 메모리 내 재정렬 필요
-      else {
+
+      // orderBy가 주어졌거나, driver가 orderBy와 일치하지 않은 경우 인메모리 정렬 필요
+      if (!isDriverOrderByField && orderByField) {
         const results: DataplyDocument<T>[] = []
-        let keys = await driver.tree.keys(driver.condition, undefined)
-        for (const { tree, condition } of others) {
-          keys = await tree.keys(condition, keys)
-        }
         for (const key of keys) {
           const stringified = await self.api.select(key, false, tx)
           if (!stringified) continue
@@ -862,8 +885,8 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
         // 정렬: orderBy 필드로 정렬 (인덱스 없으면 문서 필드로 직접 정렬)
         results.sort((a, b) => {
-          const aVal = (a as any)[orderBy] ?? (a as any)._id
-          const bVal = (b as any)[orderBy] ?? (b as any)._id
+          const aVal = (a as any)[orderByField] ?? (a as any)._id
+          const bVal = (b as any)[orderByField] ?? (b as any)._id
           const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
           return sortOrder === 'asc' ? cmp : -cmp
         })
@@ -872,6 +895,17 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
         const limitedResults = results.slice(0, limit === Infinity ? undefined : limit)
         for (const doc of limitedResults) {
           yield doc
+        }
+      }
+      // driver가 orderBy와 일치하거나, orderBy가 없는 경우 정렬 불필요
+      else {
+        let i = 0
+        for (const key of keys) {
+          if (i >= limit) break
+          const stringified = await self.api.select(key, false, tx)
+          if (!stringified) continue
+          yield JSON.parse(stringified)
+          i++
         }
       }
     }, tx)

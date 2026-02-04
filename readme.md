@@ -175,6 +175,27 @@ Returns a new `Transaction` object.
 ### `db.close()`
 Flushes changes and closes the database files.
 
+## Benchmark
+
+The following benchmarks were conducted using the `npm run benchmark` command. The results show the performance of various operations on a dataset of **10,000** documents.
+
+- **Package Version**: `0.0.3-alpha.1`
+- **Batch Size**: 1,000 items per batch (for bulk operations)
+- **Iterations**: 5 full lifecycle cycles
+
+### Benchmark Results
+
+| Operation | Count | Avg Time (ms) | Ops/s | Min (ms) | Max (ms) | Remarks |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **InsertBatch** | 10,000 | 6499.22 | **1,538** | 5891.53 | 7403.67 | 1000 items per batch |
+| **Select** | 100 | 30.09 | **3,323** | 26.09 | 37.16 | Indexed Equality |
+| **Partial Update** | 100 | 86.44 | **1,157** | 74.15 | 115.22 | Bulk Update |
+| **Full Update** | 1 | 20.77 | **48** | 16.10 | 25.61 | Single Update |
+| **Delete** | 100 | 5893.65 | **17** | 5523.06 | 6173.39 | Page Reclamation |
+
+> [!NOTE]
+> **Performance Analysis**: The `Delete (Bulk)` operation takes more time compared to other operations because it involves intensive index tree restructuring and physical **Page Reclamation (Garbage Collection)** logic to maintain storage efficiency after massive data removal.
+
 ## License
 
 MIT

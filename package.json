@@ -23,6 +23,9 @@
   },
   "scripts": {
     "test": "jest -i",
+    "pretest": "esbuild test/wal_crash_sim.ts --bundle --platform=node --outfile=test/wal_crash_sim_bundled.js",
+    "benchmark": "npx tsx benchmark/MassiveInsert.bench.ts",
+    "prebenchmark": "npm run pretest",
     "build": "node build/index.js && tsc"
   },
   "keywords": [
@@ -39,7 +42,7 @@
     "dataply"
   ],
   "dependencies": {
-    "dataply": "^0.0.18"
+    "dataply": "^0.0.19-alpha.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
