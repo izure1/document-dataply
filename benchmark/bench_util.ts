@@ -76,3 +76,16 @@ export function cleanupDb(dbPath: string) {
     }
   }
 }
+
+/**
+ * Saves benchmark results to a JSON file for github-action-benchmark.
+ */
+export function saveResultsJson(results: BenchResult[], filePath: string) {
+  const data = results.map((r) => ({
+    name: r.name,
+    unit: 'ms',
+    value: parseFloat(r.avg.toFixed(2))
+  }))
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
+  console.log(`\nBenchmark results saved to ${filePath}`)
+}

@@ -1,4 +1,5 @@
 ![node.js workflow](https://github.com/izure1/document-dataply/actions/workflows/node.js.yml/badge.svg)
+![Performance Benchmark](https://github.com/izure1/document-dataply/actions/workflows/benchmark.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # Document-Dataply
@@ -180,24 +181,17 @@ Flushes changes and closes the database files.
 
 ## Benchmark
 
-The following benchmarks were conducted using the `npm run benchmark` command. The results show the performance of various operations on a dataset of **10,000** documents.
+Automated benchmarks are executed on every push to the `main` branch and for every pull request. This ensures that performance regressions are detected early.
 
-- **Package Version**: `0.0.3-alpha.1`
-- **Batch Size**: 1,000 items per batch (for bulk operations)
-- **Iterations**: 5 full lifecycle cycles
+- **Dataset**: 10,000 documents
+- **Operations**: Batch Insert, Indexed Select, Partial Update, Full Update, Delete
 
-### Benchmark Results
+### Performance Trend
 
-| Operation | Count | Avg Time (ms) | Ops/s | Min (ms) | Max (ms) | Remarks |
-| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **InsertBatch** | 10,000 | 6499.22 | **1,538** | 5891.53 | 7403.67 | 1000 items per batch |
-| **Select** | 100 | 30.09 | **3,323** | 26.09 | 37.16 | Indexed Equality |
-| **Partial Update** | 100 | 86.44 | **1,157** | 74.15 | 115.22 | Bulk Update |
-| **Full Update** | 1 | 20.77 | **48** | 16.10 | 25.61 | Single Update |
-| **Delete** | 100 | 5893.65 | **17** | 5523.06 | 6173.39 | Page Reclamation |
+You can view the real-time performance trend and detailed metrics on our [Performance Dashboard](https://izure1.github.io/document-dataply/dev/bench/).
 
-> [!NOTE]
-> **Performance Analysis**: The `Delete (Bulk)` operation takes more time compared to other operations because it involves intensive index tree restructuring and physical **Page Reclamation (Garbage Collection)** logic to maintain storage efficiency after massive data removal.
+> [!TIP]
+> **Continuous Monitoring**: We use `github-action-benchmark` to monitor performance changes. For every PR, a summary of the performance impact is automatically commented to help maintain high efficiency.
 
 ## License
 

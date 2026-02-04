@@ -4,3 +4,6 @@
 /select.ts
 /test/**/*
 !/test/**/*.ts
+*.db
+*.wal
+benchmark/benchmark-results.json

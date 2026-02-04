@@ -1,6 +1,6 @@
 import { DocumentDataply } from '../src/core'
 import * as path from 'node:path'
-import { runBenchmark, printSummary, cleanupDb, BenchResult } from './bench_util'
+import { runBenchmark, printSummary, cleanupDb, BenchResult, saveResultsJson } from './bench_util'
 
 type MassiveDoc = {
   id: number
@@ -23,8 +23,6 @@ const TOTAL_ITEMS = 10000
 const BATCH_SIZE = 1000
 
 async function main() {
-  const allResults: BenchResult[] = []
-
   // Final summary will be calculated across 5 full cycles
   // Each cycle creates a new DB, inserts 10k items, queries, updates, and deletes.
 
@@ -112,13 +110,19 @@ async function main() {
     return { name, times, avg, min: Math.min(...times), max: Math.max(...times) }
   }
 
-  printSummary([
+  const finalResults = [
     formatResult('InsertBatch (10k items)', resultsMap.insert),
     formatResult('Select (Indexed Equality)', resultsMap.select),
     formatResult('Partial Update (Bulk)', resultsMap.partialUpdate),
     formatResult('Full Update (Single)', resultsMap.fullUpdate),
     formatResult('Delete (Bulk)', resultsMap.delete)
-  ])
+  ]
+
+  printSummary(finalResults)
+
+  if (process.argv.includes('--json')) {
+    saveResultsJson(finalResults, path.join(__dirname, 'benchmark-results.json'))
+  }
 
   cleanupDb(dbPath)
 }
