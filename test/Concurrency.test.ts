@@ -35,8 +35,8 @@ describe('DocumentDataply Concurrency Stress Test', () => {
   })
 
   test('should handle multiple concurrent insertions', async () => {
-    const numParallel = 10
-    const opsPerParallel = 20
+    const numParallel = 20
+    const opsPerParallel = 50
     const totalDocs = numParallel * opsPerParallel
 
     const promises = []
@@ -61,18 +61,18 @@ describe('DocumentDataply Concurrency Stress Test', () => {
     for (let i = 0; i < totalDocs; i++) {
       expect(sortedById[i]._id).toBe(i + 1)
     }
-  })
+  }, 120000)
 
   test('should handle concurrent updates to different documents', async () => {
     // Insert initial data
-    const initialDocs = 50
+    const initialDocs = 100
     const ids = await db.insertBatch(
       Array.from({ length: initialDocs }, (_, i) => ({ name: `User_${i}`, count: 0 }))
     )
 
     const promises = ids.map(id => {
-      // Each doc updated 5 times concurrently (simulated)
-      return Promise.all(Array.from({ length: 5 }, async () => {
+      // Each doc updated 10 times concurrently (simulated)
+      return Promise.all(Array.from({ length: 10 }, async () => {
         await db.partialUpdate({ _id: id } as any, (doc) => ({
           count: doc.count + 1
         }))
@@ -83,32 +83,32 @@ describe('DocumentDataply Concurrency Stress Test', () => {
 
     const results = await db.select({}).drain()
     results.forEach(doc => {
-      expect(doc.count).toBe(5)
+      expect(doc.count).toBe(10)
     })
-  })
+  }, 120000)
 
   test('should handle mixed insert/update/delete concurrently', async () => {
     // This is a heavy stress test
-    const initialCount = 20
+    const initialCount = 50
     await db.insertBatch(Array.from({ length: initialCount }, (_, i) => ({ name: `Initial_${i}`, count: i })))
 
     const tasks = []
 
     // Task 1: Continuous insertion
     tasks.push((async () => {
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 100; i++) {
         await db.insert({ name: `New_${i}`, count: 100 + i })
       }
     })())
 
     // Task 2: Continuous update
     tasks.push((async () => {
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 50; i++) {
         await db.partialUpdate({ name: { like: 'Initial_%' } } as any, (doc) => ({
           count: doc.count * 2
         }))
         // Small delay to allow interleaving
-        await new Promise(r => setTimeout(r, 10))
+        await new Promise(r => setTimeout(r, 5))
       }
     })())
 
@@ -117,7 +117,7 @@ describe('DocumentDataply Concurrency Stress Test', () => {
       // Delete even numbered initial docs
       for (let i = 0; i < initialCount; i += 2) {
         await db.delete({ name: `Initial_${i}` } as any)
-        await new Promise(r => setTimeout(r, 15))
+        await new Promise(r => setTimeout(r, 10))
       }
     })())
 
@@ -125,7 +125,8 @@ describe('DocumentDataply Concurrency Stress Test', () => {
 
     // Final sanity check
     const all = await db.select({}).drain()
-    // Initial(20) - Deleted(10) + New(30) = 40
-    expect(all.length).toBe(40)
-  })
+    // Initial(50) - Deleted(25) + New(100) = 125
+    expect(all.length).toBe(125)
+  }, 120000)
+
 })
