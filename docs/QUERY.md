@@ -16,6 +16,9 @@ const results = await db.select({
 This query finds all documents where `category` is 'electronics' and `status` is 'available'.
 
 > [!TIP]
+> **Query Shortcut**: The syntax `{ [field]: value }` is a shortcut for `{ [field]: { equal: value } }`. Both produce the same result.
+
+> [!TIP]
 > **Full Scan (Select All)**: If you pass an empty object (`{}`) or no values in the query object, the database will retrieve **all documents**.
 
 ## 2. Supported Query Operators
@@ -28,7 +31,7 @@ In addition to simple matching, various comparison operators are available.
 | `lte` | Less Than or Equal | `price: { lte: 1000 }` |
 | `gt` | Greater Than | `score: { gt: 80 }` |
 | `gte` | Greater Than or Equal | `views: { gte: 100 }` |
-| `equal` | Equal To | `name: { equal: 'John' }` |
+| `equal` | Equal To | `name: { equal: 'John' }` (or `name: 'John'`) |
 | `notEqual` | Not Equal To | `role: { notEqual: 'admin' }` |
 | `like` | Pattern Matching (SQL style) | `title: { like: 'Node%' }` (`%` is a wildcard) |
 | `or` | Matches any value in the array | `tags: { or: ['news', 'tech'] }` |

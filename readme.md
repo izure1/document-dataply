@@ -8,7 +8,7 @@
 > **This project is currently in the Alpha stage.**
 > APIs and internal structures may change significantly between versions. Use with caution in production environments.
 
-`document-dataply` is a high-performance document-oriented database library built on top of the [`dataply`](https://github.com/izure1/dataply) record storage engine. It provides a structured way to store, index, and query JSON-style documents, supporting transactions and complex field indexing.
+`document-dataply` is a **pure JavaScript** high-performance document-oriented database library built on top of the [`dataply`](https://github.com/izure1/dataply) record storage engine. It is designed to handle **millions of rows** with high stability, providing a structured way to store, index, and query JSON-style documents.
 
 ## Key Features
 
@@ -16,8 +16,21 @@
 - **B+Tree Indexing**: Supports high-performance lookups using a B+Tree indexing engine.
 - **Deep Indexing**: Index nested object fields and specific array elements (e.g., `user.profile.name` or `tags.0`).
 - **Flexible Indexing Policies**: Supports full re-indexing for existing data or incremental indexing for future data.
-- **Transactions**: ACID-compliant transactions for atomic operations.
+- **ACID Transactions**: Reliable atomic operations with **WAL (Write-Ahead Logging)** and **MVCC (Multi-Version Concurrency Control)** support.
+- **Modern Architecture**: Fully supports **Async/Await** and **Streaming**, making it ideal for modern high-concurrency server environments.
 - **Rich Querying**: Supports comparison operators (`lt`, `gt`, `equal`, etc.) and pattern matching (`like`).
+
+## Platform Compatibility
+
+Built with pure JavaScript, `document-dataply` can be used in various environments:
+- **Official Support**: Node.js, Electron, NW.js
+- **Experimental Support**: Deno, Bun
+
+## Data Types
+
+Supports standard JSON data types:
+- `string`, `number`, `boolean`, `null`
+- Nested `object` and `array`
 
 ## Installation
 
@@ -58,7 +71,7 @@ async function main() {
 
   // Query document
   const query = db.select({
-    name: 'John Doe',
+    name: 'John Doe', // Shortcut for { name: { equal: 'John Doe' } }
     age: { gte: 25 }
   })
 
