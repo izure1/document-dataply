@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770290074615,
+  "lastUpdate": 1770298010658,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -146,6 +146,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Delete (Bulk)",
             "value": 3684.25,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "56f95eb36eaf2946d1349118ace435d312c871ac",
+          "message": "chore: 버전 업데이트",
+          "timestamp": "2026-02-05T22:25:55+09:00",
+          "tree_id": "a058eda2872bb3db45c2d7912edbd939e29a8d6b",
+          "url": "https://github.com/izure1/document-dataply/commit/56f95eb36eaf2946d1349118ace435d312c871ac"
+        },
+        "date": 1770298010233,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (10k items)",
+            "value": 2868.55,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 18.99,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 45.6,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 10.81,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3658.02,
             "unit": "ms"
           }
         ]
