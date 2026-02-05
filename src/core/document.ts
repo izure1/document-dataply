@@ -822,6 +822,22 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
   }
 
   /**
+   * Count documents from the database that match the query
+   * @param query The query to use (only indexed fields + _id allowed)
+   * @param tx The transaction to use
+   * @returns The number of documents that match the query
+   */
+  async count(
+    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    tx?: Transaction
+  ): Promise<number> {
+    return this.api.readLock(() => this.api.runWithDefault(async (tx) => {
+      const pks = await this.getKeys(query)
+      return pks.size
+    }, tx))
+  }
+
+  /**
    * Select documents from the database
    * @param query The query to use (only indexed fields + _id allowed)
    * @param options The options to use

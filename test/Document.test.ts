@@ -128,4 +128,63 @@ describe('DocumentDataply Basic CRUD', () => {
     expect(metadata.rowCount).toBeGreaterThanOrEqual(0)
     expect(metadata.pageSize).toBeDefined()
   })
+
+  describe('count() method', () => {
+    test('should return 0 for empty collection', async () => {
+      const count = await db.count({})
+      expect(count).toBe(0)
+    })
+
+    test('should return total count with empty query', async () => {
+      await db.insert({ name: 'User 1', age: 20 })
+      await db.insert({ name: 'User 2', age: 30 })
+      await db.insert({ name: 'User 3', age: 40 })
+
+      const count = await db.count({})
+      expect(count).toBe(3)
+    })
+
+    test('should count with single index filter', async () => {
+      await db.insert({ name: 'John', city: 'Seoul' })
+      await db.insert({ name: 'Jane', city: 'Busan' })
+      await db.insert({ name: 'Jim', city: 'Seoul' })
+
+      const seoulCount = await db.count({ city: 'Seoul' })
+      expect(seoulCount).toBe(2)
+
+      const busanCount = await db.count({ city: 'Busan' })
+      expect(busanCount).toBe(1)
+    })
+
+    test('should count with multiple index filters', async () => {
+      await db.insert({ name: 'User A', age: 25, city: 'Seoul' })
+      await db.insert({ name: 'User B', age: 25, city: 'Busan' })
+      await db.insert({ name: 'User C', age: 30, city: 'Seoul' })
+
+      const count = await db.count({ age: 25, city: 'Seoul' })
+      expect(count).toBe(1)
+    })
+
+    test('should return 0 when no documents match', async () => {
+      await db.insert({ name: 'User A', age: 25 })
+      const count = await db.count({ age: 100 })
+      expect(count).toBe(0)
+    })
+
+    test('should reflect changes after delete and update', async () => {
+      await db.insert({ name: 'User X', age: 10, city: 'Seoul' })
+      await db.insert({ name: 'User Y', age: 10, city: 'Seoul' })
+
+      expect(await db.count({ age: 10 })).toBe(2)
+
+      // Delete one
+      await db.delete({ name: 'User X' })
+      expect(await db.count({ age: 10 })).toBe(1)
+
+      // Update one
+      await db.partialUpdate({ name: 'User Y' }, { age: 20 })
+      expect(await db.count({ age: 10 })).toBe(0)
+      expect(await db.count({ age: 20 })).toBe(1)
+    })
+  })
 })
