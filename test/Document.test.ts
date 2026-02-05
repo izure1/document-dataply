@@ -187,4 +187,43 @@ describe('DocumentDataply Basic CRUD', () => {
       expect(await db.count({ age: 20 })).toBe(1)
     })
   })
+
+  describe('Pagination (offset)', () => {
+    beforeEach(async () => {
+      // 5 Documents for pagination testing
+      await db.insert({ name: 'User 1', age: 10 })
+      await db.insert({ name: 'User 2', age: 20 })
+      await db.insert({ name: 'User 3', age: 30 })
+      await db.insert({ name: 'User 4', age: 40 })
+      await db.insert({ name: 'User 5', age: 50 })
+    })
+
+    test('should skip documents using offset', async () => {
+      const results = await db.select({}, { offset: 2 }).drain()
+      expect(results.length).toBe(3)
+      expect(results[0].name).toBe('User 3')
+      expect(results[2].name).toBe('User 5')
+    })
+
+    test('should combine offset and limit', async () => {
+      const results = await db.select({}, { offset: 1, limit: 2 }).drain()
+      expect(results.length).toBe(2)
+      expect(results[0].name).toBe('User 2')
+      expect(results[1].name).toBe('User 3')
+    })
+
+    test('should support offset with in-memory sorting (orderBy)', async () => {
+      // city is indexed, but using it with age (also indexed) but sorting by name (indexed)
+      // to trigger the in-memory sorting logic path in select()
+      const results = await db.select({}, { orderBy: 'name', sortOrder: 'desc', offset: 1, limit: 2 }).drain()
+      expect(results.length).toBe(2)
+      expect(results[0].name).toBe('User 4')
+      expect(results[1].name).toBe('User 3')
+    })
+
+    test('should return empty array if offset exceeds count', async () => {
+      const results = await db.select({}, { offset: 10 }).drain()
+      expect(results.length).toBe(0)
+    })
+  })
 })

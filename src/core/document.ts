@@ -868,6 +868,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
     const {
       limit = Infinity,
+      offset = 0,
       sortOrder = 'asc',
       orderBy: orderByField
     } = options
@@ -907,8 +908,10 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
           return sortOrder === 'asc' ? cmp : -cmp
         })
 
-        // limit 적용 후 yield
-        const limitedResults = results.slice(0, limit === Infinity ? undefined : limit)
+        // limit & offset 적용 후 yield
+        const start = offset
+        const end = limit === Infinity ? undefined : start + limit
+        const limitedResults = results.slice(start, end)
         for (const doc of limitedResults) {
           yield doc
         }
@@ -916,11 +919,17 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       // driver가 orderBy와 일치하거나, orderBy가 없는 경우 정렬 불필요
       else {
         let i = 0
+        let yieldedCount = 0
         for (const key of keys) {
-          if (i >= limit) break
+          if (yieldedCount >= limit) break
+          if (i < offset) {
+            i++
+            continue
+          }
           const stringified = await self.api.select(key, false, tx)
           if (!stringified) continue
           yield JSON.parse(stringified)
+          yieldedCount++
           i++
         }
       }

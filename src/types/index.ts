@@ -73,12 +73,28 @@ export interface DataplyTreeValue<T> {
   v: T
 }
 
+/**
+ * Options for querying documents.
+ */
 export type DocumentDataplyQueryOptions<
   T extends DocumentJSON,
   IC extends IndexConfig<T>
 > = {
+  /**
+   * The maximum number of documents to return.
+   */
   limit?: number
+  /**
+   * The number of documents to skip.
+   */
+  offset?: number
+  /**
+   * The field to order the results by.
+   */
   orderBy?: ExtractIndexKeys<T, IC> | '_id'
+  /**
+   * The order to sort the results by.
+   */
   sortOrder?: BPTreeOrder
 }
 
