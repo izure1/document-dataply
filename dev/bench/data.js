@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770393475829,
+  "lastUpdate": 1770404367661,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -293,6 +293,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Delete (Bulk)",
             "value": 3709.7,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "63cdbee3a3f0dee28ff415ac64736c3cefce6ff2",
+          "message": "fix: 쿼리에서 _id 필드가 타입 추론되지 않던 오류를 수정",
+          "timestamp": "2026-02-07T03:58:30+09:00",
+          "tree_id": "ea4904c3c9232bf58aeede84a72df2d9bf934280",
+          "url": "https://github.com/izure1/document-dataply/commit/63cdbee3a3f0dee28ff415ac64736c3cefce6ff2"
+        },
+        "date": 1770404366837,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (10k items)",
+            "value": 2838.53,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 17.5,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 48.48,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 11.75,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3521.9,
             "unit": "ms"
           }
         ]
