@@ -546,16 +546,16 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
     if (isDriverOrderByField) {
       let keys = await driver.tree.keys(driver.condition as any, undefined, sortOrder)
       for (const { tree, condition } of others) {
-        keys = await tree.keys(condition, keys, sortOrder)
+        keys = await tree.keys(condition as any, keys, sortOrder)
       }
       rollback()
       return keys
     }
     // Case 2: Driver is different -> No specific order guaranteed from trees
     else {
-      let keys = await driver.tree.keys(driver.condition, undefined)
+      let keys = await driver.tree.keys(driver.condition as any, undefined)
       for (const { tree, condition } of others) {
-        keys = await tree.keys(condition, keys)
+        keys = await tree.keys(condition as any, keys)
       }
       rollback()
       return keys

@@ -63,10 +63,12 @@ export type DocumentDataplyIndexedQuery<
   T extends DocumentJSON,
   IC extends IndexConfig<T>
 > = {
-    [key in keyof IC]: key extends keyof FinalFlatten<DataplyDocument<T>>
-    ? FinalFlatten<DataplyDocument<T>>[key] | DocumentDataplyCondition<FinalFlatten<DataplyDocument<T>>[key]>
-    : never
-  }
+  [key in keyof IC]: key extends keyof FinalFlatten<DataplyDocument<T>>
+  ? FinalFlatten<DataplyDocument<T>>[key] | DocumentDataplyCondition<FinalFlatten<DataplyDocument<T>>[key]>
+  : never
+} & DocumentDataplyQuery<{
+  _id: number
+}>
 
 export interface DataplyTreeValue<T> {
   k: number
