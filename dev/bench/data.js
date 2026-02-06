@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770408603641,
+  "lastUpdate": 1770411335600,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -391,6 +391,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Delete (Bulk)",
             "value": 3770,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "4fb961fba3504c1678aa8e5d9b4c6852c3590f0e",
+          "message": "feat: walCheckpointThreshold 변경으로 인한 dataply 종속성 라이브러리 업데이트",
+          "timestamp": "2026-02-07T05:54:08+09:00",
+          "tree_id": "296eb76b71115e4a33d65ce2dee0fd3f492020a7",
+          "url": "https://github.com/izure1/document-dataply/commit/4fb961fba3504c1678aa8e5d9b4c6852c3590f0e"
+        },
+        "date": 1770411335315,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (10k items)",
+            "value": 3053.61,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 19.47,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 59.58,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 14.61,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3763.37,
             "unit": "ms"
           }
         ]
