@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770411335600,
+  "lastUpdate": 1770415891451,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -440,6 +440,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Delete (Bulk)",
             "value": 3763.37,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "8f57ea0e678e2b9af9614f013db9056988703114",
+          "message": "feat: wal 지연쓰기를 위한 dataply 종속성 라이브러리 버전 업데이트",
+          "timestamp": "2026-02-07T07:10:26+09:00",
+          "tree_id": "1c45fd0c0b6802e93ba19b189cd3e2042f01a323",
+          "url": "https://github.com/izure1/document-dataply/commit/8f57ea0e678e2b9af9614f013db9056988703114"
+        },
+        "date": 1770415891142,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (10k items)",
+            "value": 3021.84,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 17.6,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 50.04,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 12.99,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3799.84,
             "unit": "ms"
           }
         ]
