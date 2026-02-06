@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770326800796,
+  "lastUpdate": 1770393475829,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -244,6 +244,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Delete (Bulk)",
             "value": 3691.54,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "37c10c38bcc1646de21b9f05c73b0ef77e2f356b",
+          "message": "chore: 메모리 누수 문제로 인한 dataply 종속성 라이브러리 업데이트",
+          "timestamp": "2026-02-07T00:56:03+09:00",
+          "tree_id": "5837292db6fab546da839c66ea543afd0b622a3f",
+          "url": "https://github.com/izure1/document-dataply/commit/37c10c38bcc1646de21b9f05c73b0ef77e2f356b"
+        },
+        "date": 1770393475554,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (10k items)",
+            "value": 2869.73,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 17.07,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 47.32,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 12.21,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3709.7,
             "unit": "ms"
           }
         ]
