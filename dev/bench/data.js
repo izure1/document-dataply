@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770427063007,
+  "lastUpdate": 1770433983467,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -538,6 +538,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Delete (Bulk)",
             "value": 3671.69,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "8cae4af17deb7682dac7a43a1222c745f97bda8d",
+          "message": "feat: 조회 스트림에서 현재 데이터가 yield 로 대기 중일 때, 다음 청크를 비동기적으로 미리 프리로드하여 성능을 개선합니다.",
+          "timestamp": "2026-02-07T12:03:00+09:00",
+          "tree_id": "8f7c58e06c107ceee43a4d0582c8f3668c9f2130",
+          "url": "https://github.com/izure1/document-dataply/commit/8cae4af17deb7682dac7a43a1222c745f97bda8d"
+        },
+        "date": 1770433983186,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (10k items)",
+            "value": 2901.16,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 31.69,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 45.25,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 12.88,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3705.51,
             "unit": "ms"
           }
         ]
