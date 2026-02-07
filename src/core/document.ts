@@ -946,10 +946,26 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
         CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
         i += firstChunk.length
 
-        // Remaining iterations
-        while (i < totalKeys) {
-          const chunk = Array.from(keys.subarray(i, i + CHUNK_SIZE))
-          const stringifiedResults = await self.api.selectMany(chunk, false, tx)
+        // Remaining iterations (Pipelined)
+        let nextSortChunkPromise: Promise<(string | null)[]> | null = null
+        if (i < totalKeys) {
+          const nextChunk = Array.from(keys.subarray(i, i + CHUNK_SIZE))
+          nextSortChunkPromise = self.api.selectMany(nextChunk, false, tx)
+          i += nextChunk.length
+        }
+
+        while (nextSortChunkPromise) {
+          const stringifiedResults = await nextSortChunkPromise
+
+          // Prefetch NEXT while processing CURRENT
+          if (i < totalKeys) {
+            const nextChunk = Array.from(keys.subarray(i, i + CHUNK_SIZE))
+            nextSortChunkPromise = self.api.selectMany(nextChunk, false, tx)
+            i += nextChunk.length
+          }
+          else {
+            nextSortChunkPromise = null
+          }
 
           for (const stringified of stringifiedResults) {
             if (!stringified) continue
@@ -957,14 +973,15 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
             if (heap) {
               if (heap.size < heapSizeLimit) {
                 heap.push(doc)
-              } else if (heapComparator(doc, heap.peek()!) > 0) {
+              }
+              else if (heapComparator(doc, heap.peek()!) > 0) {
                 heap.replace(doc)
               }
-            } else {
+            }
+            else {
               results.push(doc)
             }
           }
-          i += chunk.length
         }
 
         const finalResults = heap ? heap.toArray() : results
@@ -1010,19 +1027,43 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
         CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
         i += firstChunk.length
 
-        // Remaining iterations
-        while (i < totalKeys && yieldedCount < limit) {
+        // Remaining iterations (Pipelined)
+        let nextStreamChunkPromise: Promise<(string | null)[]> | null = null
+        if (i < totalKeys && yieldedCount < limit) {
           const nextPksToFetchCount = Math.min(CHUNK_SIZE, limit - yieldedCount)
-          const chunk = Array.from(keys.subarray(i, i + nextPksToFetchCount))
-          const stringifiedResults = await self.api.selectMany(chunk, false, tx)
+          const nextChunk = Array.from(keys.subarray(i, i + nextPksToFetchCount))
+          nextStreamChunkPromise = self.api.selectMany(nextChunk, false, tx)
+          i += nextChunk.length
+        }
+
+        while (nextStreamChunkPromise) {
+          const stringifiedResults = await nextStreamChunkPromise
+
+          // Prefetch NEXT while yielding CURRENT
+          if (i < totalKeys && yieldedCount < limit) {
+            const nextPksToFetchCount = Math.min(CHUNK_SIZE, limit - (yieldedCount + stringifiedResults.filter(Boolean).length))
+            if (nextPksToFetchCount > 0) {
+              const nextChunk = Array.from(keys.subarray(i, i + nextPksToFetchCount))
+              nextStreamChunkPromise = self.api.selectMany(nextChunk, false, tx)
+              i += nextChunk.length
+            }
+            else {
+              nextStreamChunkPromise = null
+            }
+          }
+          else {
+            nextStreamChunkPromise = null
+          }
 
           for (const stringified of stringifiedResults) {
             if (!stringified) continue
             yield JSON.parse(stringified)
             yieldedCount++
-            if (yieldedCount >= limit) break
+            if (yieldedCount >= limit) {
+              nextStreamChunkPromise = null // Stop prefetching
+              break
+            }
           }
-          i += chunk.length
         }
       }
     }, tx)
