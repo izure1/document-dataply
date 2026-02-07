@@ -26,6 +26,7 @@ import {
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
 import { catchPromise } from '../utils/catchPromise'
+import { BinaryHeap } from '../utils/heap'
 
 export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T>> extends DataplyAPI {
   declare runWithDefault
@@ -880,6 +881,8 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       const keys = new Uint32Array(keySet)
       const totalKeys = keys.length
 
+      if (totalKeys === 0) return
+
       // Case: Needs in-memory sorting
       const selectivity = await self.getSelectivityCandidate(
         self.verboseQuery(query),
@@ -898,36 +901,78 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
       // orderBy가 주어졌거나, driver가 orderBy와 일치하지 않은 경우 인메모리 정렬 필요
       if (!isDriverOrderByField && orderByField) {
+        // For Top-K optimization: if limit is finite, use a Heap to keep only (limit + offset) items
+        const isTopK = limit !== Infinity
+        const heapSizeLimit = isTopK ? (limit + offset) : Infinity
+
+        // Comparator for the heap:
+        // If asc: we want to keep the smallest, so we need a Max-Heap to discard the largest.
+        // If desc: we want to keep the largest, so we need a Min-Heap to discard the smallest.
+        const heapComparator = (a: DataplyDocument<T>, b: DataplyDocument<T>) => {
+          const aVal = (a as any)[orderByField!] ?? (a as any)._id
+          const bVal = (b as any)[orderByField!] ?? (b as any)._id
+          const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+          return sortOrder === 'asc' ? -cmp : cmp // Invert for Max-Heap if asc
+        }
+
+        const heap = isTopK ? new BinaryHeap<DataplyDocument<T>>(heapComparator) : null
+
         const results: DataplyDocument<T>[] = []
         let i = 0
+        // First iteration: sampling to calculate dynamic CHUNK_SIZE
+        const firstChunk = Array.from(keys.subarray(i, i + 100))
+        const firstResults = await self.api.selectMany(firstChunk, false, tx)
+
+        let totalBytes = 0
+        let count = 0
+        for (const s of firstResults) {
+          if (!s) continue
+          totalBytes += s.length
+          count++
+          const doc = JSON.parse(s) as DataplyDocument<T>
+          if (heap) {
+            if (heap.size < heapSizeLimit) {
+              heap.push(doc)
+            }
+            else if (heapComparator(doc, heap.peek()!) > 0) {
+              heap.replace(doc)
+            }
+          }
+          else {
+            results.push(doc)
+          }
+        }
+        const avgSize = count > 0 ? totalBytes / count : 1024
+        CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
+        i += firstChunk.length
+
+        // Remaining iterations
         while (i < totalKeys) {
           const chunk = Array.from(keys.subarray(i, i + CHUNK_SIZE))
           const stringifiedResults = await self.api.selectMany(chunk, false, tx)
 
-          // 첫 번째 호출에서 동적 CHUNK_SIZE 계산
-          if (i === 0) {
-            let totalBytes = 0
-            let count = 0
-            for (const s of stringifiedResults) {
-              if (s) {
-                totalBytes += s.length
-                count++
-              }
-            }
-            const avgSize = count > 0 ? totalBytes / count : 1024
-            CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
-          }
-
           for (const stringified of stringifiedResults) {
-            if (stringified) results.push(JSON.parse(stringified))
+            if (!stringified) continue
+            const doc = JSON.parse(stringified) as DataplyDocument<T>
+            if (heap) {
+              if (heap.size < heapSizeLimit) {
+                heap.push(doc)
+              } else if (heapComparator(doc, heap.peek()!) > 0) {
+                heap.replace(doc)
+              }
+            } else {
+              results.push(doc)
+            }
           }
           i += chunk.length
         }
 
+        const finalResults = heap ? heap.toArray() : results
+
         // 정렬: orderBy 필드로 정렬 (인덱스 없으면 문서 필드로 직접 정렬)
-        results.sort((a, b) => {
-          const aVal = (a as any)[orderByField] ?? (a as any)._id
-          const bVal = (b as any)[orderByField] ?? (b as any)._id
+        finalResults.sort((a, b) => {
+          const aVal = (a as any)[orderByField!] ?? (a as any)._id
+          const bVal = (b as any)[orderByField!] ?? (b as any)._id
           const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
           return sortOrder === 'asc' ? cmp : -cmp
         })
@@ -935,7 +980,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
         // limit & offset 적용 후 yield
         const start = offset
         const end = limit === Infinity ? undefined : start + limit
-        const limitedResults = results.slice(start, end)
+        const limitedResults = finalResults.slice(start, end)
         for (const doc of limitedResults) {
           yield doc
         }
@@ -944,35 +989,38 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       else {
         let yieldedCount = 0
         let i = offset
-        let isFirst = true
-        while (i < totalKeys && yieldedCount < limit) {
-          const currentChunkLimit = isFirst ? 100 : CHUNK_SIZE
-          const remainingLimit = limit - yieldedCount
-          const pksToFetchCount = Math.min(currentChunkLimit, remainingLimit)
-          const chunk = Array.from(keys.subarray(i, i + pksToFetchCount))
+        if (i >= totalKeys || yieldedCount >= limit) return
 
+        // First iteration: sampling
+        const pksToFetchCount = Math.min(100, limit - yieldedCount)
+        const firstChunk = Array.from(keys.subarray(i, i + pksToFetchCount))
+        const firstResults = await self.api.selectMany(firstChunk, false, tx)
+
+        let totalBytes = 0
+        let count = 0
+        for (const s of firstResults) {
+          if (!s) continue
+          yield JSON.parse(s)
+          yieldedCount++
+          totalBytes += s.length
+          count++
+          if (yieldedCount >= limit) break
+        }
+        const avgSize = count > 0 ? totalBytes / count : 1024
+        CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
+        i += firstChunk.length
+
+        // Remaining iterations
+        while (i < totalKeys && yieldedCount < limit) {
+          const nextPksToFetchCount = Math.min(CHUNK_SIZE, limit - yieldedCount)
+          const chunk = Array.from(keys.subarray(i, i + nextPksToFetchCount))
           const stringifiedResults = await self.api.selectMany(chunk, false, tx)
 
-          if (isFirst) {
-            let totalBytes = 0
-            let count = 0
-            for (const s of stringifiedResults) {
-              if (s) {
-                totalBytes += s.length
-                count++
-              }
-            }
-            const avgSize = count > 0 ? totalBytes / count : 1024
-            CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
-            isFirst = false
-          }
-
           for (const stringified of stringifiedResults) {
-            if (stringified) {
-              yield JSON.parse(stringified)
-              yieldedCount++
-              if (yieldedCount >= limit) break
-            }
+            if (!stringified) continue
+            yield JSON.parse(stringified)
+            yieldedCount++
+            if (yieldedCount >= limit) break
           }
           i += chunk.length
         }
