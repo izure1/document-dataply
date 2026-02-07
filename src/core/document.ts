@@ -14,6 +14,7 @@ import type {
   DocumentDataplyQueryOptions,
   IndexConfig
 } from '../types'
+import * as os from 'node:os'
 import {
   type BPTreeCondition,
   DataplyAPI,
@@ -875,7 +876,9 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
     const self = this
     const stream = this.api.streamWithDefault(async function* (tx) {
-      const keys = await self.getKeys(query, orderByField, sortOrder)
+      const keySet = await self.getKeys(query, orderByField, sortOrder)
+      const keys = new Uint32Array(keySet)
+      const totalKeys = keys.length
 
       // Case: Needs in-memory sorting
       const selectivity = await self.getSelectivityCandidate(
@@ -891,13 +894,34 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
         selectivity.rollback()
       }
 
+      let CHUNK_SIZE = 100 // 초기 샘플링 크기
+
       // orderBy가 주어졌거나, driver가 orderBy와 일치하지 않은 경우 인메모리 정렬 필요
       if (!isDriverOrderByField && orderByField) {
         const results: DataplyDocument<T>[] = []
-        for (const key of keys) {
-          const stringified = await self.api.select(key, false, tx)
-          if (!stringified) continue
-          results.push(JSON.parse(stringified))
+        let i = 0
+        while (i < totalKeys) {
+          const chunk = Array.from(keys.subarray(i, i + CHUNK_SIZE))
+          const stringifiedResults = await self.api.selectMany(chunk, false, tx)
+
+          // 첫 번째 호출에서 동적 CHUNK_SIZE 계산
+          if (i === 0) {
+            let totalBytes = 0
+            let count = 0
+            for (const s of stringifiedResults) {
+              if (s) {
+                totalBytes += s.length
+                count++
+              }
+            }
+            const avgSize = count > 0 ? totalBytes / count : 1024
+            CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
+          }
+
+          for (const stringified of stringifiedResults) {
+            if (stringified) results.push(JSON.parse(stringified))
+          }
+          i += chunk.length
         }
 
         // 정렬: orderBy 필드로 정렬 (인덱스 없으면 문서 필드로 직접 정렬)
@@ -918,22 +942,43 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       }
       // driver가 orderBy와 일치하거나, orderBy가 없는 경우 정렬 불필요
       else {
-        let i = 0
         let yieldedCount = 0
-        for (const key of keys) {
-          if (yieldedCount >= limit) break
-          if (i < offset) {
-            i++
-            continue
+        let i = offset
+        let isFirst = true
+        while (i < totalKeys && yieldedCount < limit) {
+          const currentChunkLimit = isFirst ? 100 : CHUNK_SIZE
+          const remainingLimit = limit - yieldedCount
+          const pksToFetchCount = Math.min(currentChunkLimit, remainingLimit)
+          const chunk = Array.from(keys.subarray(i, i + pksToFetchCount))
+
+          const stringifiedResults = await self.api.selectMany(chunk, false, tx)
+
+          if (isFirst) {
+            let totalBytes = 0
+            let count = 0
+            for (const s of stringifiedResults) {
+              if (s) {
+                totalBytes += s.length
+                count++
+              }
+            }
+            const avgSize = count > 0 ? totalBytes / count : 1024
+            CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
+            isFirst = false
           }
-          const stringified = await self.api.select(key, false, tx)
-          if (!stringified) continue
-          yield JSON.parse(stringified)
-          yieldedCount++
-          i++
+
+          for (const stringified of stringifiedResults) {
+            if (stringified) {
+              yield JSON.parse(stringified)
+              yieldedCount++
+              if (yieldedCount >= limit) break
+            }
+          }
+          i += chunk.length
         }
       }
     }, tx)
+
     const drain = async () => {
       const result: DataplyDocument<T>[] = []
       for await (const document of stream) {
