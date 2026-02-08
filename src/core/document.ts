@@ -1,3 +1,4 @@
+import * as os from 'node:os'
 import type {
   DataplyTreeValue,
   DocumentDataplyInnerMetadata,
@@ -14,7 +15,6 @@ import type {
   DocumentDataplyQueryOptions,
   IndexConfig
 } from '../types'
-import * as os from 'node:os'
 import {
   type BPTreeCondition,
   DataplyAPI,
@@ -26,7 +26,6 @@ import {
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
 import { catchPromise } from '../utils/catchPromise'
-import { BinaryHeap } from '../utils/heap'
 
 export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T>> extends DataplyAPI {
   declare runWithDefault
@@ -527,7 +526,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
     query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
     orderBy?: keyof IC | '_id',
     sortOrder: 'asc' | 'desc' = 'asc'
-  ): Promise<Set<number>> {
+  ): Promise<Float64Array> {
     const isQueryEmpty = Object.keys(query).length === 0
     const normalizedQuery = isQueryEmpty
       ? { _id: { gte: 0 } } as unknown as typeof query
@@ -539,28 +538,28 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       orderBy as string,
     )
 
-    if (!selectivity) return new Set<number>()
+    if (!selectivity) return new Float64Array(0)
 
     const { driver, others, rollback } = selectivity
     const isDriverOrderByField = orderBy === undefined || driver.field === orderBy
 
     // Case 1: Driver matches orderBy (or no orderBy) -> Straight from B+Tree
     if (isDriverOrderByField) {
-      let keys = await driver.tree.keys(driver.condition as any, undefined, sortOrder)
+      let keysSet = await driver.tree.keys(driver.condition as any, undefined, sortOrder)
       for (const { tree, condition } of others) {
-        keys = await tree.keys(condition as any, keys, sortOrder)
+        keysSet = await tree.keys(condition as any, keysSet, sortOrder)
       }
       rollback()
-      return keys
+      return new Float64Array(keysSet)
     }
     // Case 2: Driver is different -> No specific order guaranteed from trees
     else {
-      let keys = await driver.tree.keys(driver.condition as any, undefined)
+      let keysSet = await driver.tree.keys(driver.condition as any, undefined)
       for (const { tree, condition } of others) {
-        keys = await tree.keys(condition as any, keys)
+        keysSet = await tree.keys(condition as any, keysSet)
       }
       rollback()
-      return keys
+      return new Float64Array(keysSet)
     }
   }
 
@@ -692,7 +691,8 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
     }
     treeTxs.delete('_id')
 
-    for (const pk of pks) {
+    for (let i = 0, len = pks.length; i < len; i++) {
+      const pk = pks[i]
       // 1.1 문서 직접 로드 (PK 알고 있으므로 인덱스 재검색 불필요)
       const doc = await this.api.getDocument(pk, tx)
       if (!doc) continue
@@ -800,7 +800,8 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
       const pks = await this.getKeys(query)
       let deletedCount = 0
 
-      for (const pk of pks) {
+      for (let i = 0, len = pks.length; i < len; i++) {
+        const pk = pks[i]
         // 1.1 문서 정보 확보 (인덱스 삭제를 위함)
         const doc = await this.api.getDocument(pk, tx)
         if (!doc) continue
@@ -835,7 +836,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
   ): Promise<number> {
     return this.api.readLock(() => this.api.runWithDefault(async (tx) => {
       const pks = await this.getKeys(query)
-      return pks.size
+      return pks.length
     }, tx))
   }
 
@@ -877,8 +878,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
     const self = this
     const stream = this.api.streamWithDefault(async function* (tx) {
-      const keySet = await self.getKeys(query, orderByField, sortOrder)
-      const keys = new Uint32Array(keySet)
+      const keys = await self.getKeys(query, orderByField, sortOrder)
       const totalKeys = keys.length
 
       if (totalKeys === 0) return
@@ -897,172 +897,113 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
         selectivity.rollback()
       }
 
-      let CHUNK_SIZE = 100 // 초기 샘플링 크기
+      let currentChunkSize = self.api.options.pageSize
 
-      // orderBy가 주어졌거나, driver가 orderBy와 일치하지 않은 경우 인메모리 정렬 필요
+      // 1. In-Memory Sorting Path
       if (!isDriverOrderByField && orderByField) {
-        // For Top-K optimization: if limit is finite, use a Heap to keep only (limit + offset) items
-        const isTopK = limit !== Infinity
-        const heapSizeLimit = isTopK ? (limit + offset) : Infinity
-
-        // Comparator for the heap:
-        // If asc: we want to keep the smallest, so we need a Max-Heap to discard the largest.
-        // If desc: we want to keep the largest, so we need a Min-Heap to discard the smallest.
-        const heapComparator = (a: DataplyDocument<T>, b: DataplyDocument<T>) => {
-          const aVal = (a as any)[orderByField!] ?? (a as any)._id
-          const bVal = (b as any)[orderByField!] ?? (b as any)._id
-          const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-          return sortOrder === 'asc' ? -cmp : cmp // Invert for Max-Heap if asc
-        }
-
-        const heap = isTopK ? new BinaryHeap<DataplyDocument<T>>(heapComparator) : null
-
         const results: DataplyDocument<T>[] = []
         let i = 0
-        // First iteration: sampling to calculate dynamic CHUNK_SIZE
-        const firstChunk = Array.from(keys.subarray(i, i + 100))
-        const firstResults = await self.api.selectMany(firstChunk, false, tx)
 
-        let totalBytes = 0
-        let count = 0
-        for (const s of firstResults) {
-          if (!s) continue
-          totalBytes += s.length
-          count++
-          const doc = JSON.parse(s) as DataplyDocument<T>
-          if (heap) {
-            if (heap.size < heapSizeLimit) {
-              heap.push(doc)
-            }
-            else if (heapComparator(doc, heap.peek()!) > 0) {
-              heap.replace(doc)
-            }
-          }
-          else {
-            results.push(doc)
-          }
-        }
-        const avgSize = count > 0 ? totalBytes / count : 1024
-        CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
-        i += firstChunk.length
-
-        // Remaining iterations (Pipelined)
-        let nextSortChunkPromise: Promise<(string | null)[]> | null = null
+        // 첫 번째 청크 prefetch
+        let nextChunkPromise: Promise<any[]> | null = null
         if (i < totalKeys) {
-          const nextChunk = Array.from(keys.subarray(i, i + CHUNK_SIZE))
-          nextSortChunkPromise = self.api.selectMany(nextChunk, false, tx)
-          i += nextChunk.length
+          const endIdx = Math.min(i + currentChunkSize, totalKeys)
+          const chunkKeys = keys.subarray(i, endIdx)
+          nextChunkPromise = self.api.selectMany(chunkKeys, false, tx)
+          i = endIdx
         }
 
-        while (nextSortChunkPromise) {
-          const stringifiedResults = await nextSortChunkPromise
+        while (nextChunkPromise) {
+          const rawResults = await nextChunkPromise
+          nextChunkPromise = null
 
-          // Prefetch NEXT while processing CURRENT
+          const freeMem = os.freemem()
+          const safeLimit = freeMem * 0.2
+
+          // 처리 중에 다음 청크 prefetch 시작
           if (i < totalKeys) {
-            const nextChunk = Array.from(keys.subarray(i, i + CHUNK_SIZE))
-            nextSortChunkPromise = self.api.selectMany(nextChunk, false, tx)
-            i += nextChunk.length
-          }
-          else {
-            nextSortChunkPromise = null
+            const endIdx = Math.min(i + currentChunkSize, totalKeys)
+            const chunkKeys = keys.subarray(i, endIdx)
+            nextChunkPromise = self.api.selectMany(chunkKeys, false, tx)
+            i = endIdx
           }
 
-          for (const stringified of stringifiedResults) {
-            if (!stringified) continue
-            const doc = JSON.parse(stringified) as DataplyDocument<T>
-            if (heap) {
-              if (heap.size < heapSizeLimit) {
-                heap.push(doc)
-              }
-              else if (heapComparator(doc, heap.peek()!) > 0) {
-                heap.replace(doc)
-              }
+          let chunkTotalSize = 0
+          for (let j = 0, len = rawResults.length; j < len; j++) {
+            const s = rawResults[j]
+            if (s) {
+              results.push(JSON.parse(s))
+              chunkTotalSize += s.length * 2
             }
-            else {
-              results.push(doc)
-            }
+          }
+
+          // 동적 청크 조절
+          if (chunkTotalSize > 0) {
+            if (chunkTotalSize < safeLimit * 0.05) currentChunkSize = currentChunkSize * 2
+            else if (chunkTotalSize > safeLimit * 0.3) currentChunkSize = Math.max(Math.floor(currentChunkSize / 2), 20)
           }
         }
 
-        const finalResults = heap ? heap.toArray() : results
-
-        // 정렬: orderBy 필드로 정렬 (인덱스 없으면 문서 필드로 직접 정렬)
-        finalResults.sort((a, b) => {
-          const aVal = (a as any)[orderByField!] ?? (a as any)._id
-          const bVal = (b as any)[orderByField!] ?? (b as any)._id
+        // 정렬
+        results.sort((a, b) => {
+          const aVal = (a as any)[orderByField] ?? (a as any)._id
+          const bVal = (b as any)[orderByField] ?? (b as any)._id
           const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
           return sortOrder === 'asc' ? cmp : -cmp
         })
 
-        // limit & offset 적용 후 yield
         const start = offset
         const end = limit === Infinity ? undefined : start + limit
-        const limitedResults = finalResults.slice(start, end)
-        for (const doc of limitedResults) {
-          yield doc
+        const limitedResults = results.slice(start, end)
+        for (let j = 0, len = limitedResults.length; j < len; j++) {
+          yield limitedResults[j]
         }
       }
-      // driver가 orderBy와 일치하거나, orderBy가 없는 경우 정렬 불필요
+      // 2. Sequential/Stream Path
       else {
         let yieldedCount = 0
         let i = offset
-        if (i >= totalKeys || yieldedCount >= limit) return
 
-        // First iteration: sampling
-        const pksToFetchCount = Math.min(100, limit - yieldedCount)
-        const firstChunk = Array.from(keys.subarray(i, i + pksToFetchCount))
-        const firstResults = await self.api.selectMany(firstChunk, false, tx)
-
-        let totalBytes = 0
-        let count = 0
-        for (const s of firstResults) {
-          if (!s) continue
-          yield JSON.parse(s)
-          yieldedCount++
-          totalBytes += s.length
-          count++
-          if (yieldedCount >= limit) break
-        }
-        const avgSize = count > 0 ? totalBytes / count : 1024
-        CHUNK_SIZE = Math.max(32, Math.floor((os.freemem() * 0.1) / avgSize))
-        i += firstChunk.length
-
-        // Remaining iterations (Pipelined)
-        let nextStreamChunkPromise: Promise<(string | null)[]> | null = null
-        if (i < totalKeys && yieldedCount < limit) {
-          const nextPksToFetchCount = Math.min(CHUNK_SIZE, limit - yieldedCount)
-          const nextChunk = Array.from(keys.subarray(i, i + nextPksToFetchCount))
-          nextStreamChunkPromise = self.api.selectMany(nextChunk, false, tx)
-          i += nextChunk.length
+        // 첫 번째 청크 prefetch
+        let nextChunkPromise: Promise<any[]> | null = null
+        if (yieldedCount < limit && i < totalKeys) {
+          const endIdx = Math.min(i + currentChunkSize, totalKeys)
+          const chunkKeys = keys.subarray(i, endIdx)
+          nextChunkPromise = self.api.selectMany(chunkKeys, false, tx)
+          i = endIdx
         }
 
-        while (nextStreamChunkPromise) {
-          const stringifiedResults = await nextStreamChunkPromise
+        while (nextChunkPromise) {
+          const rawResults = await nextChunkPromise
+          nextChunkPromise = null
 
-          // Prefetch NEXT while yielding CURRENT
-          if (i < totalKeys && yieldedCount < limit) {
-            const nextPksToFetchCount = Math.min(CHUNK_SIZE, limit - (yieldedCount + stringifiedResults.filter(Boolean).length))
-            if (nextPksToFetchCount > 0) {
-              const nextChunk = Array.from(keys.subarray(i, i + nextPksToFetchCount))
-              nextStreamChunkPromise = self.api.selectMany(nextChunk, false, tx)
-              i += nextChunk.length
-            }
-            else {
-              nextStreamChunkPromise = null
-            }
-          }
-          else {
-            nextStreamChunkPromise = null
+          const freeMem = os.freemem()
+          const safeLimit = freeMem * 0.2
+
+          // 처리 중에 다음 청크 prefetch 시작
+          if (yieldedCount < limit && i < totalKeys) {
+            const endIdx = Math.min(i + currentChunkSize, totalKeys)
+            const chunkKeys = keys.subarray(i, endIdx)
+            nextChunkPromise = self.api.selectMany(chunkKeys, false, tx)
+            i = endIdx
           }
 
-          for (const stringified of stringifiedResults) {
-            if (!stringified) continue
-            yield JSON.parse(stringified)
-            yieldedCount++
-            if (yieldedCount >= limit) {
-              nextStreamChunkPromise = null // Stop prefetching
-              break
+          let chunkTotalSize = 0
+          for (let j = 0, len = rawResults.length; j < len; j++) {
+            const s = rawResults[j]
+            if (s) {
+              if (yieldedCount < limit) {
+                yield JSON.parse(s)
+                yieldedCount++
+              }
+              chunkTotalSize += s.length * 2
             }
+          }
+
+          // 동적 청크 조절
+          if (chunkTotalSize > 0) {
+            if (chunkTotalSize < safeLimit * 0.05) currentChunkSize = currentChunkSize * 2
+            else if (chunkTotalSize > safeLimit * 0.3) currentChunkSize = Math.max(Math.floor(currentChunkSize / 2), 20)
           }
         }
       }
