@@ -26,6 +26,7 @@ import {
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
 import { catchPromise } from '../utils/catchPromise'
+import { BinaryHeap } from '../utils/heap'
 
 export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T>> extends DataplyAPI {
   declare runWithDefault
@@ -901,6 +902,19 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
       // 1. In-Memory Sorting Path
       if (!isDriverOrderByField && orderByField) {
+        const topK = limit === Infinity ? Infinity : offset + limit
+        let heap: BinaryHeap<DataplyDocument<T>> | null = null
+
+        if (topK !== Infinity) {
+          const heapComparator = (a: DataplyDocument<T>, b: DataplyDocument<T>) => {
+            const aVal = (a as any)[orderByField] ?? (a as any)._id
+            const bVal = (b as any)[orderByField] ?? (b as any)._id
+            const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+            return sortOrder === 'asc' ? -cmp : cmp
+          }
+          heap = new BinaryHeap(heapComparator)
+        }
+
         const results: DataplyDocument<T>[] = []
         let i = 0
 
@@ -932,8 +946,28 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
           for (let j = 0, len = rawResults.length; j < len; j++) {
             const s = rawResults[j]
             if (s) {
-              results.push(JSON.parse(s))
+              const doc = JSON.parse(s)
               chunkTotalSize += s.length * 2
+
+              if (heap) {
+                if (heap.size < topK) heap.push(doc)
+                else {
+                  const top = heap.peek()
+                  if (top) {
+                    const aVal = (doc as any)[orderByField] ?? (doc as any)._id
+                    const bVal = (top as any)[orderByField] ?? (top as any)._id
+                    const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+
+                    const isBetter = sortOrder === 'asc' ? cmp < 0 : cmp > 0
+                    if (isBetter) {
+                      heap.replace(doc)
+                    }
+                  }
+                }
+              }
+              else {
+                results.push(doc)
+              }
             }
           }
 
@@ -944,8 +978,9 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
           }
         }
 
-        // 정렬
-        results.sort((a, b) => {
+        // Final Sort
+        const finalDocs = heap ? heap.toArray() : results
+        finalDocs.sort((a, b) => {
           const aVal = (a as any)[orderByField] ?? (a as any)._id
           const bVal = (b as any)[orderByField] ?? (b as any)._id
           const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
@@ -954,7 +989,7 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
         const start = offset
         const end = limit === Infinity ? undefined : start + limit
-        const limitedResults = results.slice(start, end)
+        const limitedResults = finalDocs.slice(start, end)
         for (let j = 0, len = limitedResults.length; j < len; j++) {
           yield limitedResults[j]
         }
