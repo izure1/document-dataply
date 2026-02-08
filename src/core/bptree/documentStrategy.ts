@@ -1,6 +1,6 @@
 import type { DataplyTreeValue, Primitive } from '../../types'
 import { BPTreeNode, SerializeStrategyAsync, type SerializeStrategyHead } from 'dataply'
-import { DocumentDataplyAPI } from '../document'
+import { DocumentDataplyAPI } from '../documentAPI'
 
 export class DocumentSerializeStrategyAsync<T extends Primitive> extends SerializeStrategyAsync<number, DataplyTreeValue<T>> {
   constructor(
