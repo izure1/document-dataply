@@ -200,7 +200,12 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       }
 
       // 대상 필드당 하나의 트랜잭션 생성
-      const fieldTxMap: Record<string, any> = {}
+      const fieldTxMap: Record<string, BPTreeAsyncTransaction<number, DataplyTreeValue<Primitive>>> = {}
+      const fieldMap: Map<
+        BPTreeAsyncTransaction<number, DataplyTreeValue<Primitive>>,
+        { k: number, v: Primitive }[]
+      > = new Map()
+
       for (const field of backfillTargets) {
         const tree = this.trees.get(field)
         if (tree && field !== '_id') {
@@ -233,18 +238,37 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           }
           const v = flatDoc[field]
           const btx = fieldTxMap[field]
-          await btx.insert(k, { k, v })
+          const entry = { k, v }
+          await btx.insert(k, entry)
+          if (!fieldMap.has(btx)) {
+            fieldMap.set(btx, [])
+          }
+          fieldMap.get(btx)!.push(entry)
         }
         backfilledCount++
       }
 
       // 모든 트랜잭션 커밋
-      const commits = Object.values(fieldTxMap).map(btx => btx.commit())
-      await Promise.all(commits).catch(async (err) => {
-        const rollbacks = Object.values(fieldTxMap).map(btx => btx.rollback())
-        await Promise.all(rollbacks)
+      const btxs = Object.values(fieldTxMap)
+      const success = []
+      try {
+        for (const btx of btxs) {
+          await btx.commit()
+          success.push(btx)
+        }
+      } catch (err) {
+        for (const btx of btxs) {
+          await btx.rollback()
+        }
+        for (const btx of success) {
+          const entries = fieldMap.get(btx)
+          if (!entries) continue
+          for (const entry of entries) {
+            await btx.delete(entry.k, entry)
+          }
+        }
         throw err
-      })
+      }
 
       // 백필 후 대기 필드 초기화
       this.pendingBackfillFields = []

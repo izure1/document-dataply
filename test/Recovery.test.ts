@@ -8,7 +8,6 @@ type RecoveryDoc = {
 }
 
 describe('DocumentDataply Recovery and Backfill Test', () => {
-  const dbPath = path.join(__dirname, 'test_recovery.db')
   const testDir = path.join(__dirname, 'tmp_recovery')
 
   beforeEach(() => {
@@ -99,7 +98,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
     db = DocumentDataply.Define<RecoveryDoc>().Options({
       indices: {
         name: true,
-        score: true
+        score: true,
       }
     }).Open(currentDbPath)
     await db.init()
