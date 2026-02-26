@@ -29,14 +29,13 @@ import { DocumentValueComparator } from './bptree/documentComparator'
 import { catchPromise } from '../utils/catchPromise'
 import { BinaryHeap } from '../utils/heap'
 import { tokenize } from '../utils/tokenizer'
-import { fastStringHash } from '../utils/hash'
 
 export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T>> extends DataplyAPI {
   declare runWithDefault
   declare streamWithDefault
 
   indices: DocumentDataplyInnerMetadata['indices'] = {}
-  readonly trees: Map<string, BPTreeAsync<number, DataplyTreeValue<Primitive>>> = new Map()
+  readonly trees: Map<string, BPTreeAsync<string | number, DataplyTreeValue<Primitive>>> = new Map()
   readonly comparator = new DocumentValueComparator()
   private pendingBackfillFields: string[] = []
   private readonly lock: Ryoiki
@@ -203,10 +202,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       }
 
       // 대상 필드당 하나의 트랜잭션 생성
-      const fieldTxMap: Record<string, BPTreeAsyncTransaction<number, DataplyTreeValue<Primitive>>> = {}
+      const fieldTxMap: Record<
+        string,
+        BPTreeAsyncTransaction<string | number, DataplyTreeValue<Primitive>>
+      > = {}
       const fieldMap: Map<
-        BPTreeAsyncTransaction<number, DataplyTreeValue<Primitive>>,
-        { k: number, v: Primitive }[]
+        BPTreeAsyncTransaction<string | number, DataplyTreeValue<Primitive>>,
+        DataplyTreeValue<Primitive>[]
       > = new Map()
 
       for (const field of backfillTargets) {
@@ -229,7 +231,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
       // 모든 행을 스캔하여 문서 찾기 (1번 행은 메타데이터, 2번 행 이후는 트리 헤드 또는 문서)
       for await (const [k, complexValue] of stream) {
-        const doc = await this.getDocument(k, tx)
+        const doc = await this.getDocument(k as number, tx)
         if (!doc) continue
         const flatDoc = this.flattenDocument(doc)
         for (const field of backfillTargets) {
@@ -249,10 +251,10 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
             tokens = tokenize(v, indexConfig)
           }
 
-          const batchInsertData: [number, DataplyTreeValue<Primitive>][] = []
+          const batchInsertData: [number | string, DataplyTreeValue<Primitive>][] = []
           for (const token of tokens) {
-            const keyToInsert = isFts ? this.getTokenKey(k, token as string) : k
-            const entry = { k, v: token }
+            const keyToInsert = isFts ? this.getTokenKey(k as number, token as string) : k
+            const entry = { k: k as number, v: token }
             batchInsertData.push([keyToInsert, entry])
             if (!fieldMap.has(btx)) {
               fieldMap.set(btx, [])
@@ -428,29 +430,39 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     query: Partial<DocumentDataplyQuery<V>>,
     orderByField?: string
   ): Promise<{
-    driver: {
+    driver: ({
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
-      isFtsMatch?: boolean,
-      matchTokens?: string[]
-    },
-    others: {
+      isFtsMatch: false
+    } | {
+      tree: BPTreeAsync<string, V>
+      condition: Partial<DocumentDataplyCondition<U>>,
+      field: string,
+      isFtsMatch: true,
+      matchTokens: string[]
+    }),
+    others: ({
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
-      isFtsMatch?: boolean,
-      matchTokens?: string[]
-    }[],
+      isFtsMatch: false
+    } | {
+      tree: BPTreeAsync<string, V>
+      condition: Partial<DocumentDataplyCondition<U>>,
+      field: string,
+      isFtsMatch: true,
+      matchTokens: string[]
+    })[],
     rollback: () => void
   } | null> {
-    const candidates: {
-      tree: BPTreeAsync<number, V>,
+    const candidates: ({
+      tree: BPTreeAsync<string | number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       isFtsMatch?: boolean,
       matchTokens?: string[]
-    }[] = []
+    })[] = []
     const metadata = await this.getDocumentInnerMetadata(this.txContext.get()!)
     for (const field in query) {
       const tree = this.trees.get(field)
@@ -473,7 +485,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       }
 
       candidates.push({
-        tree: treeTx as unknown as BPTreeAsync<number, V>,
+        tree: treeTx as unknown as BPTreeAsync<string | number, V>,
         condition,
         field,
         isFtsMatch,
@@ -498,8 +510,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       const orderByCandidate = candidates.find(c => c.field === orderByField)
       if (orderByCandidate) {
         return {
-          driver: orderByCandidate,
-          others: candidates.filter(c => c.field !== orderByField),
+          driver: orderByCandidate as any,
+          others: candidates.filter(c => c.field !== orderByField) as any,
           rollback,
         }
       }
@@ -513,16 +525,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     }
     if (!res) return null
     return {
-      driver: res as {
-        tree: BPTreeAsync<number, V>,
-        condition: Partial<DocumentDataplyCondition<U>>,
-        field: string
-      },
-      others: candidates.filter(c => c.tree !== res!.tree) as {
-        tree: BPTreeAsync<number, V>,
-        condition: Partial<DocumentDataplyCondition<U>>,
-        field: string
-      }[],
+      driver: res as any,
+      others: candidates.filter(c => c.tree !== res!.tree) as any,
       rollback,
     }
   }
@@ -542,13 +546,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     return { verySmallChunkSize, smallChunkSize }
   }
 
-  private getTokenKey(pk: number, token: string): number {
-    return fastStringHash(pk + ':' + token)
+  private getTokenKey(pk: number, token: string): string {
+    return pk + ':' + token
   }
 
   private async applyCandidateByFTS<V>(
     candidate: {
-      tree: BPTreeAsync<number, { k: number, v: V }>,
+      tree: BPTreeAsync<string, DataplyTreeValue<V>>,
       condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyIndexedQuery<T, IC>>>>,
     },
     matchedTokens: string[],
@@ -577,7 +581,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
    */
   private async applyCandidate<V>(
     candidate: {
-      tree: BPTreeAsync<number, { k: number, v: V }>,
+      tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyIndexedQuery<T, IC>>>>,
     },
     filterValues?: Set<number>,
@@ -637,7 +641,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         )
       }
       else {
-        keys = await this.applyCandidate(candidate, keys, currentOrder)
+        keys = await this.applyCandidate(candidate as any, keys, currentOrder)
       }
     }
 
@@ -747,7 +751,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         const treeTx = await tree.createTransaction()
         const indexConfig = metadata.indices[field]?.[1]
 
-        const batchInsertData: [number, DataplyTreeValue<Primitive>][] = []
+        const batchInsertData: [string | number, DataplyTreeValue<Primitive>][] = []
         for (let i = 0, len = flattenedData.length; i < len; i++) {
           const item = flattenedData[i]
           const v = item.data[field]
@@ -792,7 +796,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     const pks = await this.getKeys(query)
     let updatedCount = 0
 
-    const treeTxs = new Map<string, BPTreeAsyncTransaction<number, DataplyTreeValue<any>>>()
+    const treeTxs = new Map<string, BPTreeAsyncTransaction<string | number, DataplyTreeValue<any>>>()
     for (const [field, tree] of this.trees) {
       treeTxs.set(field, await tree.createTransaction())
     }
@@ -839,7 +843,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
             newTokens = tokenize(newV, indexConfig)
           }
 
-          const batchInsertData: [number, DataplyTreeValue<Primitive>][] = []
+          const batchInsertData: [string | number, DataplyTreeValue<Primitive>][] = []
           for (const newToken of newTokens) {
             const keyToInsert = isFts ? this.getTokenKey(pk, newToken as string) : pk
             batchInsertData.push([keyToInsert, { k: pk, v: newToken }])
