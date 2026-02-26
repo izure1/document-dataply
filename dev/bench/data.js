@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772116127608,
+  "lastUpdate": 1772116142738,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -950,6 +950,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 92.98,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "585249c7f50b92ed737016f504f3e9bb5be4d213",
+          "message": "chore: 버전 업데이트",
+          "timestamp": "2026-02-26T23:28:11+09:00",
+          "tree_id": "f1093689df4cb3bbbc306fb651f883c933fc677c",
+          "url": "https://github.com/izure1/document-dataply/commit/585249c7f50b92ed737016f504f3e9bb5be4d213"
+        },
+        "date": 1772116141683,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2845.99,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 17.67,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 21.54,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 5.17,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 2752.06,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 94.78,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 94.03,
             "unit": "ms"
           }
         ]
