@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771520639154,
+  "lastUpdate": 1772101895827,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -783,6 +783,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Delete (Bulk)",
             "value": 1198.24,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "c29fc5c0dff920d17394d63cc6e59844812141be",
+          "message": "feat: fts 인덱싱 기능 추가. n-gram과 whitespace 중 하나를 선택하여 동작합니다",
+          "timestamp": "2026-02-26T11:00:49+09:00",
+          "tree_id": "6900454a49994152ebacda9e3bee08a1ed54349b",
+          "url": "https://github.com/izure1/document-dataply/commit/c29fc5c0dff920d17394d63cc6e59844812141be"
+        },
+        "date": 1772101895250,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (10k items)",
+            "value": 1428.03,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 29.13,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 30.92,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 4.14,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 1032.82,
             "unit": "ms"
           }
         ]
