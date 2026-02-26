@@ -13,7 +13,8 @@ import type {
   DocumentDataplyIndexedQuery,
   FinalFlatten,
   DocumentDataplyCondition,
-  DocumentDataplyQueryOptions
+  DocumentDataplyQueryOptions,
+  FTSConfig
 } from '../types'
 import {
   DataplyAPI,
@@ -27,6 +28,8 @@ import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
 import { catchPromise } from '../utils/catchPromise'
 import { BinaryHeap } from '../utils/heap'
+import { tokenize } from '../utils/tokenizer'
+import { fastStringHash } from '../utils/hash'
 
 export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T>> extends DataplyAPI {
   declare runWithDefault
@@ -39,10 +42,10 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
   private readonly lock: Ryoiki
 
   readonly indexedFields: Set<string>
-  private readonly operatorConverters: Record<
+  private readonly operatorConverters: Partial<Record<
     keyof DocumentDataplyCondition<FinalFlatten<T>>,
     keyof BPTreeCondition<FinalFlatten<T>>
-  > = {
+  >> = {
       equal: 'primaryEqual',
       notEqual: 'primaryNotEqual',
       lt: 'primaryLt',
@@ -91,7 +94,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         if (!existingIndex) {
           // 사용자 요청: readHead에서 행 생성.
           // PK를 -1로 설정하여 플레이스홀더로 사용.
-          metadata.indices[field] = [-1, isBackfillEnabled]
+          metadata.indices[field] = [-1, isBackfillEnabled as boolean | FTSConfig]
           isMetadataChanged = true
 
           if (isBackfillEnabled && !isNewlyCreated) {
@@ -104,7 +107,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           const [_pk, isMetaBackfillEnabled] = existingIndex
           // 비활성 -> 활성
           if (isBackfillEnabled && !isMetaBackfillEnabled) {
-            metadata.indices[field][1] = true
+            metadata.indices[field][1] = isBackfillEnabled as boolean | FTSConfig
             isMetadataChanged = true
             backfillTargets.push(field)
           }
@@ -238,12 +241,25 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           }
           const v = flatDoc[field]
           const btx = fieldTxMap[field]
-          const entry = { k, v }
-          await btx.insert(k, entry)
-          if (!fieldMap.has(btx)) {
-            fieldMap.set(btx, [])
+          const indexConfig = metadata.indices[field]?.[1]
+          const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts' && typeof v === 'string'
+
+          let tokens = [v as string]
+          if (isFts) {
+            tokens = tokenize(v, indexConfig)
           }
-          fieldMap.get(btx)!.push(entry)
+
+          const batchInsertData: [number, DataplyTreeValue<Primitive>][] = []
+          for (const token of tokens) {
+            const keyToInsert = isFts ? this.getTokenKey(k, token as string) : k
+            const entry = { k, v: token }
+            batchInsertData.push([keyToInsert, entry])
+            if (!fieldMap.has(btx)) {
+              fieldMap.set(btx, [])
+            }
+            fieldMap.get(btx)!.push({ k: keyToInsert as any, v: entry as any })
+          }
+          await btx.batchInsert(batchInsertData)
         }
         backfilledCount++
       }
@@ -323,7 +339,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         const newKey = parentKey ? `${parentKey}.${key}` : key
         if (typeof obj[key] === 'object' && obj[key] !== null) {
           flatten(obj[key], newKey)
-        } else {
+        }
+        else {
           result[newKey] = obj[key]
         }
       }
@@ -353,12 +370,15 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     await this.update(1, JSON.stringify(metadata), tx)
   }
 
+  /**
+   * Transforms a query object into a verbose query object
+   * @param query The query object to transform
+   * @returns The verbose query object
+   */
   verboseQuery<
     U extends Partial<DocumentDataplyIndexedQuery<T, IC>>,
     V extends DataplyTreeValue<U>
-  >(
-    query: Partial<DocumentDataplyQuery<U>>
-  ): Partial<DocumentDataplyQuery<V>> {
+  >(query: Partial<DocumentDataplyQuery<U>>): Partial<DocumentDataplyQuery<V>> {
     const result = {}
     for (const field in query) {
       const conditions = query[field] as Partial<DocumentDataplyCondition<U>>
@@ -372,7 +392,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           const before = operator as keyof typeof conditions
           const after = this.operatorConverters[before as keyof DocumentDataplyCondition<FinalFlatten<T>>]
           const v = conditions[before]
-          if (!after) continue
+          if (!after) {
+            // FTS match 등 BPTree 조건이 아닌 연산자는 원본 그대로 보존
+            if (before === 'match') {
+              (newConditions as any)[before] = v
+            }
+            continue
+          }
           if (before === 'or' && Array.isArray(v)) {
             newConditions[after] = v.map(val => ({ v: val })) as any
           }
@@ -405,26 +431,54 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     driver: {
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
-      field: string
+      field: string,
+      isFtsMatch?: boolean,
+      matchTokens?: string[]
     },
     others: {
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
-      field: string
+      field: string,
+      isFtsMatch?: boolean,
+      matchTokens?: string[]
     }[],
     rollback: () => void
   } | null> {
     const candidates: {
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
-      field: string
+      field: string,
+      isFtsMatch?: boolean,
+      matchTokens?: string[]
     }[] = []
+    const metadata = await this.getDocumentInnerMetadata(this.txContext.get()!)
     for (const field in query) {
       const tree = this.trees.get(field)
       if (!tree) continue
       const condition = query[field] as Partial<DocumentDataplyCondition<U>>
       const treeTx = await tree.createTransaction()
-      candidates.push({ tree: treeTx as unknown as BPTreeAsync<number, V>, condition, field })
+      const indexConfig = metadata.indices[field]?.[1]
+
+      let isFtsMatch = false
+      let matchTokens: string[] | undefined
+
+      // Full Text Search
+      if (
+        typeof indexConfig === 'object' &&
+        indexConfig?.type === 'fts' &&
+        condition.match
+      ) {
+        isFtsMatch = true
+        matchTokens = tokenize(condition.match as string, indexConfig)
+      }
+
+      candidates.push({
+        tree: treeTx as unknown as BPTreeAsync<number, V>,
+        condition,
+        field,
+        isFtsMatch,
+        matchTokens
+      })
     }
 
     const rollback = () => {
@@ -488,49 +542,110 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     return { verySmallChunkSize, smallChunkSize }
   }
 
+  private getTokenKey(pk: number, token: string): number {
+    return fastStringHash(pk + ':' + token)
+  }
+
+  private async applyCandidateByFTS<V>(
+    candidate: {
+      tree: BPTreeAsync<number, { k: number, v: V }>,
+      condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyIndexedQuery<T, IC>>>>,
+    },
+    matchedTokens: string[],
+    filterValues?: Set<number>,
+    order?: 'asc' | 'desc'
+  ): Promise<Set<number> | undefined> {
+    const keys = new Set<number>()
+    for (const token of matchedTokens) {
+      const pairs = await candidate.tree.where(
+        { primaryEqual: { v: token } } as any,
+        {
+          filterValues,
+          order,
+        }
+      )
+      for (const c of pairs.values()) {
+        if (!c || typeof c.k !== 'number') continue
+        const dpk = c.k
+        if (filterValues === undefined || filterValues.has(dpk)) {
+          keys.add(dpk)
+        }
+      }
+    }
+    return keys
+  }
+
   /**
-   * Get Primary Keys based on query and index selection.
-   * Internal common method to unify query optimization.
+   * 특정 인덱스 후보를 조회하여 PK 집합을 필터링합니다.
+   */
+  private async applyCandidate<V>(
+    candidate: {
+      tree: BPTreeAsync<number, { k: number, v: V }>,
+      condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyIndexedQuery<T, IC>>>>,
+    },
+    filterValues?: Set<number>,
+    order?: 'asc' | 'desc'
+  ): Promise<Set<number> | undefined> {
+    return await candidate.tree.keys(
+      candidate.condition as any,
+      {
+        filterValues,
+        order,
+      }
+    )
+  }
+
+  /**
+   * 쿼리와 인덱스 선택을 기반으로 기본 키(Primary Keys)를 가져옵니다.
+   * 쿼리 최적화를 통합하기 위한 내부 공통 메서드입니다.
    */
   async getKeys(
     query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
     orderBy?: keyof IC | '_id',
     sortOrder: 'asc' | 'desc' = 'asc'
   ): Promise<Float64Array> {
+    // 1. 쿼리 정규화 및 최적화 후보 선택
     const isQueryEmpty = Object.keys(query).length === 0
-    const normalizedQuery = isQueryEmpty
-      ? { _id: { gte: 0 } } as unknown as typeof query
-      : query
-
-    const verbose = this.verboseQuery(normalizedQuery)
+    const normalizedQuery = isQueryEmpty ? { _id: { gte: 0 } } : query
     const selectivity = await this.getSelectivityCandidate(
-      verbose as any,
-      orderBy as string,
+      this.verboseQuery(normalizedQuery as any),
+      orderBy as string
     )
 
     if (!selectivity) return new Float64Array(0)
 
     const { driver, others, rollback } = selectivity
-    const isDriverOrderByField = orderBy === undefined || driver.field === orderBy
 
-    // Case 1: Driver matches orderBy (or no orderBy) -> Straight from B+Tree
-    if (isDriverOrderByField) {
-      let keysSet = await driver.tree.keys(driver.condition as any, undefined, sortOrder)
-      for (const { tree, condition } of others) {
-        keysSet = await tree.keys(condition as any, keysSet, sortOrder)
+    // 2. 실행 계획 결정
+    // Driver 필드가 orderBy와 일치할 때만 인덱스 순서를 사용합니다.
+    const useIndexOrder = orderBy === undefined || driver.field === orderBy
+    const candidates = [driver, ...others]
+
+    // 3. 모든 후보를 순회하며 필터링 수행
+    let keys: Set<number> | undefined = undefined
+    // Driver가 정렬 요건을 충족하면 전체 과정에서 정렬 순서를 유지하도록 sortOrder를 전달합니다.
+    // 그렇지 않으면 트리 내부 정렬을 무시하도록(undefined) 처리합니다.
+    for (const candidate of candidates) {
+      const currentOrder = useIndexOrder ? sortOrder : undefined
+      if (
+        candidate.isFtsMatch &&
+        candidate.matchTokens &&
+        candidate.matchTokens.length > 0
+      ) {
+        keys = await this.applyCandidateByFTS(
+          candidate,
+          candidate.matchTokens,
+          keys,
+          currentOrder
+        )
       }
-      rollback()
-      return new Float64Array(keysSet)
-    }
-    // Case 2: Driver is different -> No specific order guaranteed from trees
-    else {
-      let keysSet = await driver.tree.keys(driver.condition as any, undefined)
-      for (const { tree, condition } of others) {
-        keysSet = await tree.keys(condition as any, keysSet)
+      else {
+        keys = await this.applyCandidate(candidate, keys, currentOrder)
       }
-      rollback()
-      return new Float64Array(keysSet)
     }
+
+    rollback()
+    return new Float64Array(Array.from(keys || []))
   }
 
   private async insertDocumentInternal(document: T, tx: Transaction): Promise<{
@@ -560,16 +675,29 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
    */
   async insertSingleDocument(document: T, tx?: Transaction): Promise<number> {
     return this.writeLock(() => this.runWithDefault(async (tx) => {
-      const { pk, document: dataplyDocument } = await this.insertDocumentInternal(document, tx)
+      const { pk: dpk, document: dataplyDocument } = await this.insertDocumentInternal(document, tx)
+      const metadata = await this.getDocumentInnerMetadata(tx)
       const flattenDocument = this.flattenDocument(dataplyDocument)
+
       // Indexing
       for (const field in flattenDocument) {
         const tree = this.trees.get(field)
         if (!tree) continue
         const v = flattenDocument[field]
-        const [error] = await catchPromise(tree.insert(pk, { k: pk, v }))
-        if (error) {
-          console.error(`BPTree indexing failed for field: ${field}`, error)
+        const indexConfig = metadata.indices[field]?.[1]
+
+        let tokens: string[] | Primitive[] = [v]
+        const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts' && typeof v === 'string'
+        if (isFts) {
+          tokens = tokenize(v, indexConfig)
+        }
+
+        for (const token of tokens) {
+          const keyToInsert = isFts ? this.getTokenKey(dpk, token as string) : dpk
+          const [error] = await catchPromise(tree.insert(keyToInsert, { k: dpk, v: token }))
+          if (error) {
+            throw error
+          }
         }
       }
       return dataplyDocument._id
@@ -618,17 +746,29 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         flattenedData[i].pk = pks[i]
       }
 
-      // 5. Indexing Phase (Grouped by field)
       for (const [field, tree] of this.trees) {
         const treeTx = await tree.createTransaction()
+        const indexConfig = metadata.indices[field]?.[1]
+
+        const batchInsertData: [number, DataplyTreeValue<Primitive>][] = []
         for (let i = 0, len = flattenedData.length; i < len; i++) {
           const item = flattenedData[i]
           const v = item.data[field]
           if (v === undefined) continue
-          const [error] = await catchPromise(treeTx.insert(item.pk, { k: item.pk, v }))
-          if (error) {
-            console.error(`BPTree indexing failed for field: ${field}`, error)
+
+          const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts' && typeof v === 'string'
+          let tokens: string[] | Primitive[] = [v]
+          if (isFts) {
+            tokens = tokenize(v, indexConfig)
           }
+          for (const token of tokens) {
+            const keyToInsert = isFts ? this.getTokenKey(item.pk, token as string) : item.pk
+            batchInsertData.push([keyToInsert, { k: item.pk, v: token }])
+          }
+        }
+        const [error] = await catchPromise(treeTx.batchInsert(batchInsertData))
+        if (error) {
+          throw error
         }
         const res = await treeTx.commit()
         if (!res.success) {
@@ -673,19 +813,41 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       const newFlatDoc = this.flattenDocument(updatedDoc)
 
       // 1.3 변경된 인덱스 필드 동기화
+      const metadata = await this.getDocumentInnerMetadata(tx)
       for (const [field, treeTx] of treeTxs) {
         const oldV = oldFlatDoc[field]
         const newV = newFlatDoc[field]
 
         if (oldV === newV) continue
 
-        // 기존 값 삭제
+        const indexConfig = metadata.indices[field]?.[1]
+        const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts'
+
+        // 기존 값 토큰 삭제
         if (field in oldFlatDoc) {
-          await treeTx.delete(pk, { k: pk, v: oldV })
+          let oldTokens: string[] | Primitive[] = [oldV]
+          if (isFts && typeof oldV === 'string') {
+            oldTokens = tokenize(oldV, indexConfig)
+          }
+          for (const oldToken of oldTokens) {
+            const keyToDelete = isFts ? this.getTokenKey(pk, oldToken as string) : pk
+            await treeTx.delete(keyToDelete, { k: pk, v: oldToken })
+          }
         }
-        // 새 값 삽입
+
+        // 새 값 토큰 삽입
         if (field in newFlatDoc) {
-          await treeTx.insert(pk, { k: pk, v: newV })
+          let newTokens: string[] | Primitive[] = [newV]
+          if (isFts && typeof newV === 'string') {
+            newTokens = tokenize(newV, indexConfig)
+          }
+
+          const batchInsertData: [number, DataplyTreeValue<Primitive>][] = []
+          for (const newToken of newTokens) {
+            const keyToInsert = isFts ? this.getTokenKey(pk, newToken as string) : pk
+            batchInsertData.push([keyToInsert, { k: pk, v: newToken }])
+          }
+          await treeTx.batchInsert(batchInsertData)
         }
       }
 
@@ -779,11 +941,24 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
         const flatDoc = this.flattenDocument(doc)
 
+        const metadata = await this.getDocumentInnerMetadata(tx)
+
         // 1.2 모든 인덱스 트리에서 삭제
         for (const [field, tree] of this.trees) {
           const v = flatDoc[field]
           if (v === undefined) continue
-          await tree.delete(pk, { k: pk, v })
+
+          const indexConfig = metadata.indices[field]?.[1]
+          const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts' && typeof v === 'string'
+          let tokens: string[] | Primitive[] = [v]
+          if (isFts) {
+            tokens = tokenize(v, indexConfig)
+          }
+
+          for (const token of tokens) {
+            const keyToDelete = isFts ? this.getTokenKey(pk, token as string) : pk
+            await tree.delete(keyToDelete, { k: pk, v: token })
+          }
         }
 
         // 1.3 실제 레코드 삭제
@@ -809,6 +984,82 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       const pks = await this.getKeys(query)
       return pks.length
     }, tx))
+  }
+
+  /**
+   * FTS 조건에 대해 문서가 유효한지 검증합니다.
+   */
+  private verifyFts(
+    doc: DataplyDocument<T>,
+    ftsConditions: { field: string, matchTokens: string[] }[]
+  ): boolean {
+    for (const { field, matchTokens } of ftsConditions) {
+      const docValue = this.flattenDocument(doc)[field]
+      if (typeof docValue !== 'string') return false
+      for (const token of matchTokens) {
+        if (!docValue.includes(token)) return false
+      }
+    }
+    return true
+  }
+
+  /**
+   * 메모리 기반으로 청크 크기를 동적 조절합니다.
+   */
+  private adjustChunkSize(currentChunkSize: number, chunkTotalSize: number): number {
+    if (chunkTotalSize <= 0) return currentChunkSize
+    const { verySmallChunkSize, smallChunkSize } = this.getFreeMemoryChunkSize()
+    if (chunkTotalSize < verySmallChunkSize) return currentChunkSize * 2
+    if (chunkTotalSize > smallChunkSize) return Math.max(Math.floor(currentChunkSize / 2), 20)
+    return currentChunkSize
+  }
+
+  /**
+   * Prefetch 방식으로 키 배열을 청크 단위로 조회하여 문서를 순회합니다.
+   * FTS 검증을 통과한 문서만 yield 합니다.
+   */
+  private async *processChunkedKeys(
+    keys: Float64Array,
+    startIdx: number,
+    initialChunkSize: number,
+    ftsConditions: { field: string, matchTokens: string[] }[],
+    tx: any
+  ): AsyncGenerator<{ doc: DataplyDocument<T>, rawSize: number }> {
+    let i = startIdx
+    const totalKeys = keys.length
+    let currentChunkSize = initialChunkSize
+
+    // 첫 번째 청크 prefetch
+    let nextChunkPromise: Promise<any[]> | null = null
+    if (i < totalKeys) {
+      const endIdx = Math.min(i + currentChunkSize, totalKeys)
+      nextChunkPromise = this.selectMany(keys.subarray(i, endIdx), false, tx)
+      i = endIdx
+    }
+
+    while (nextChunkPromise) {
+      const rawResults = await nextChunkPromise
+      nextChunkPromise = null
+
+      // 다음 청크 prefetch
+      if (i < totalKeys) {
+        const endIdx = Math.min(i + currentChunkSize, totalKeys)
+        nextChunkPromise = this.selectMany(keys.subarray(i, endIdx), false, tx)
+        i = endIdx
+      }
+
+      let chunkTotalSize = 0
+      for (let j = 0, len = rawResults.length; j < len; j++) {
+        const s = rawResults[j]
+        if (!s) continue
+        const doc = JSON.parse(s)
+        chunkTotalSize += s.length * 2
+        if (!this.verifyFts(doc, ftsConditions)) continue
+        yield { doc, rawSize: s.length * 2 }
+      }
+
+      currentChunkSize = this.adjustChunkSize(currentChunkSize, chunkTotalSize)
+    }
   }
 
   /**
@@ -840,6 +1091,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       throw new Error(`orderBy field "${orderBy}" is not indexed. Available indexed fields: ${Array.from(this.indexedFields).join(', ')}`)
     }
 
+    // 옵션 기본값 설정
     const {
       limit = Infinity,
       offset = 0,
@@ -849,12 +1101,29 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
     const self = this
     const stream = this.streamWithDefault(async function* (tx) {
+      // FTS(전문 검색) 조건 수집: match 연산자가 있는 필드의 토큰을 추출
+      const metadata = await self.getDocumentInnerMetadata(tx)
+      const ftsConditions: { field: string, matchTokens: string[] }[] = []
+      for (const field in query) {
+        const q = query[field] as any
+        if (
+          q &&
+          typeof q === 'object' &&
+          'match' in q &&
+          typeof q.match === 'string'
+        ) {
+          const indexConfig = metadata.indices[field]?.[1]
+          if (typeof indexConfig === 'object' && indexConfig?.type === 'fts') {
+            ftsConditions.push({ field, matchTokens: tokenize(q.match, indexConfig) })
+          }
+        }
+      }
+
+      // 인덱스를 통해 조건에 맞는 PK(기본 키) 목록 조회
       const keys = await self.getKeys(query, orderByField, sortOrder)
-      const totalKeys = keys.length
+      if (keys.length === 0) return
 
-      if (totalKeys === 0) return
-
-      // Case: Needs in-memory sorting
+      // Driver 인덱스가 orderBy 필드와 일치하는지 판별하여 정렬 전략 결정
       const selectivity = await self.getSelectivityCandidate(
         self.verboseQuery(query) as any,
         orderByField as string
@@ -863,95 +1132,57 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         orderByField === undefined ||
         (selectivity && selectivity.driver.field === orderByField)
       )
+      if (selectivity) selectivity.rollback()
 
-      if (selectivity) {
-        selectivity.rollback()
-      }
-
-      let currentChunkSize = self.options.pageSize
-
-      // 1. In-Memory Sorting Path
+      // ────────────────────────────────────────────────
+      // 경로 1: 메모리 내 정렬 (driver가 orderBy를 커버하지 못하는 경우)
+      // 전체 문서를 수집한 후 orderBy 기준으로 정렬하여 반환합니다.
+      // ────────────────────────────────────────────────
       if (!isDriverOrderByField && orderByField) {
+        // offset + limit 만큼만 유지하면 되므로, 힙 크기를 topK로 제한
         const topK = limit === Infinity ? Infinity : offset + limit
         let heap: BinaryHeap<DataplyDocument<T>> | null = null
 
+        // topK가 유한할 때만 최대 힙을 사용하여 상위 K개만 유지
         if (topK !== Infinity) {
-          const heapComparator = (a: DataplyDocument<T>, b: DataplyDocument<T>) => {
+          heap = new BinaryHeap((a: DataplyDocument<T>, b: DataplyDocument<T>) => {
             const aVal = (a as any)[orderByField] ?? (a as any)._id
             const bVal = (b as any)[orderByField] ?? (b as any)._id
             const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+            // 힙의 루트가 가장 "나쁜" 값이 되도록 역순 비교
             return sortOrder === 'asc' ? -cmp : cmp
-          }
-          heap = new BinaryHeap(heapComparator)
+          })
         }
 
+        // topK가 무한대인 경우 모든 문서를 배열에 수집
         const results: DataplyDocument<T>[] = []
-        let i = 0
-
-        // 첫 번째 청크 prefetch
-        let nextChunkPromise: Promise<any[]> | null = null
-        if (i < totalKeys) {
-          const endIdx = Math.min(i + currentChunkSize, totalKeys)
-          const chunkKeys = keys.subarray(i, endIdx)
-          nextChunkPromise = self.selectMany(chunkKeys, false, tx)
-          i = endIdx
-        }
-
-        while (nextChunkPromise) {
-          const rawResults = await nextChunkPromise
-          nextChunkPromise = null
-
-          const { verySmallChunkSize, smallChunkSize } = self.getFreeMemoryChunkSize()
-
-          // 처리 중에 다음 청크 prefetch 시작
-          if (i < totalKeys) {
-            const endIdx = Math.min(i + currentChunkSize, totalKeys)
-            const chunkKeys = keys.subarray(i, endIdx)
-            nextChunkPromise = self.selectMany(chunkKeys, false, tx)
-            i = endIdx
-          }
-
-          let chunkTotalSize = 0
-          for (let j = 0, len = rawResults.length; j < len; j++) {
-            const s = rawResults[j]
-            if (s) {
-              const doc = JSON.parse(s)
-              chunkTotalSize += s.length * 2
-
-              if (heap) {
-                if (heap.size < topK) heap.push(doc)
-                else {
-                  const top = heap.peek()
-                  if (top) {
-                    const aVal = (doc as any)[orderByField] ?? (doc as any)._id
-                    const bVal = (top as any)[orderByField] ?? (top as any)._id
-                    const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-
-                    const isBetter = sortOrder === 'asc' ? cmp < 0 : cmp > 0
-                    if (isBetter) {
-                      heap.replace(doc)
-                    }
-                  }
-                }
-              }
-              else {
-                results.push(doc)
+        for await (const { doc } of self.processChunkedKeys(
+          keys,
+          0,
+          self.options.pageSize,
+          ftsConditions,
+          tx
+        )) {
+          if (heap) {
+            // 힙이 아직 topK개 미만이면 무조건 추가
+            if (heap.size < topK) heap.push(doc)
+            else {
+              // 현재 문서가 힙의 루트(최악)보다 나으면 교체
+              const top = heap.peek()
+              if (top) {
+                const aVal = (doc as any)[orderByField] ?? (doc as any)._id
+                const bVal = (top as any)[orderByField] ?? (top as any)._id
+                const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+                if (sortOrder === 'asc' ? cmp < 0 : cmp > 0) heap.replace(doc)
               }
             }
           }
-
-          // 동적 청크 조절
-          if (chunkTotalSize > 0) {
-            if (chunkTotalSize < verySmallChunkSize) {
-              currentChunkSize = currentChunkSize * 2
-            }
-            else if (chunkTotalSize > smallChunkSize) {
-              currentChunkSize = Math.max(Math.floor(currentChunkSize / 2), 20)
-            }
+          else {
+            results.push(doc)
           }
         }
 
-        // Final Sort
+        // 최종 정렬: 힙 또는 배열의 문서를 orderBy 기준으로 안정 정렬
         const finalDocs = heap ? heap.toArray() : results
         finalDocs.sort((a, b) => {
           const aVal = (a as any)[orderByField] ?? (a as any)._id
@@ -960,66 +1191,35 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           return sortOrder === 'asc' ? cmp : -cmp
         })
 
-        const start = offset
-        const end = limit === Infinity ? undefined : start + limit
-        const limitedResults = finalDocs.slice(start, end)
+        // offset/limit 적용 후 결과 반환
+        const end = limit === Infinity ? undefined : offset + limit
+        const limitedResults = finalDocs.slice(offset, end)
         for (let j = 0, len = limitedResults.length; j < len; j++) {
           yield limitedResults[j]
         }
       }
-      // 2. Sequential/Stream Path
+      // ────────────────────────────────────────────────
+      // 경로 2: 순차 스트리밍 (driver가 orderBy를 커버하는 경우)
+      // 인덱스 순서를 그대로 활용하여 offset부터 limit개를 순차 반환합니다.
+      // ────────────────────────────────────────────────
       else {
         let yieldedCount = 0
-        let i = offset
-
-        // 첫 번째 청크 prefetch
-        let nextChunkPromise: Promise<any[]> | null = null
-        if (yieldedCount < limit && i < totalKeys) {
-          const endIdx = Math.min(i + currentChunkSize, totalKeys)
-          const chunkKeys = keys.subarray(i, endIdx)
-          nextChunkPromise = self.selectMany(chunkKeys, false, tx)
-          i = endIdx
-        }
-
-        while (nextChunkPromise) {
-          const rawResults = await nextChunkPromise
-          nextChunkPromise = null
-
-          const { verySmallChunkSize, smallChunkSize } = self.getFreeMemoryChunkSize()
-
-          // 처리 중에 다음 청크 prefetch 시작
-          if (yieldedCount < limit && i < totalKeys) {
-            const endIdx = Math.min(i + currentChunkSize, totalKeys)
-            const chunkKeys = keys.subarray(i, endIdx)
-            nextChunkPromise = self.selectMany(chunkKeys, false, tx)
-            i = endIdx
-          }
-
-          let chunkTotalSize = 0
-          for (let j = 0, len = rawResults.length; j < len; j++) {
-            const s = rawResults[j]
-            if (s) {
-              if (yieldedCount < limit) {
-                yield JSON.parse(s)
-                yieldedCount++
-              }
-              chunkTotalSize += s.length * 2
-            }
-          }
-
-          // 동적 청크 조절
-          if (chunkTotalSize > 0) {
-            if (chunkTotalSize < verySmallChunkSize) {
-              currentChunkSize = currentChunkSize * 2
-            }
-            else if (chunkTotalSize > smallChunkSize) {
-              currentChunkSize = Math.max(Math.floor(currentChunkSize / 2), 20)
-            }
-          }
+        // offset부터 시작하여 limit개까지만 yield
+        for await (const { doc } of self.processChunkedKeys(
+          keys,
+          offset,
+          self.options.pageSize,
+          ftsConditions,
+          tx
+        )) {
+          if (yieldedCount >= limit) break
+          yield doc
+          yieldedCount++
         }
       }
     }, tx)
 
+    // drain: 스트림의 모든 결과를 배열로 수집하여 반환하는 편의 함수
     const drain = async () => {
       const result: DataplyDocument<T>[] = []
       for await (const document of stream) {

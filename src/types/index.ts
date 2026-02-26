@@ -16,7 +16,17 @@ export interface DocumentDataplyInnerMetadata {
   updatedAt: number
   lastId: number
   indices: {
-    [key: string]: [number, boolean]
+    [key: string]: [
+      number,
+      boolean | {
+        type: 'fts',
+        tokenizer: 'whitespace'
+      } | {
+        type: 'fts',
+        tokenizer: 'ngram',
+        gramSize: number
+      }
+    ]
   }
 }
 
@@ -48,6 +58,7 @@ export type DocumentDataplyCondition<V> = {
   notEqual?: Partial<V>
   or?: Partial<V>[]
   like?: string
+  match?: string
 }
 
 export type DocumentDataplyQuery<T> = {
@@ -156,10 +167,19 @@ export type DocumentDataplyIndices<T extends DocumentJSON, IC extends IndexConfi
 }
 
 /**
- * Index configuration type - keys are field names, values are boolean
+ * Index configuration type
  */
+export type FTSConfig = {
+  type: 'fts',
+  tokenizer: 'whitespace'
+} | {
+  type: 'fts',
+  tokenizer: 'ngram',
+  gramSize: number
+};
+
 export type IndexConfig<T> = Partial<{
-  [key in keyof FinalFlatten<T>]: boolean
+  [key in keyof FinalFlatten<T>]: boolean | FTSConfig
 }>
 
 /**
