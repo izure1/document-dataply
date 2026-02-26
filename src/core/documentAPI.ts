@@ -559,10 +559,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     for (const token of matchedTokens) {
       const pairs = await candidate.tree.where(
         { primaryEqual: { v: token } } as any,
-        {
-          filterValues,
-          order,
-        }
+        { order }
       )
       for (const c of pairs.values()) {
         if (!c || typeof c.k !== 'number') continue
