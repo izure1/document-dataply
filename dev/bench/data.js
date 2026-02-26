@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772116142738,
+  "lastUpdate": 1772123121846,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -1009,6 +1009,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 94.03,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "c61b519a784e35d7f59f52ad9a99bc771995c80e",
+          "message": "fix: fts 인덱싱 도중 인덱스 키가 충돌할 수 있었던 오류를 수정합니다",
+          "timestamp": "2026-02-27T01:24:24+09:00",
+          "tree_id": "9f77fdddaf9bd05754e906db57519b4e62176fc6",
+          "url": "https://github.com/izure1/document-dataply/commit/c61b519a784e35d7f59f52ad9a99bc771995c80e"
+        },
+        "date": 1772123121427,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2883.02,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 18.02,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 43.5,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 24.16,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 2764.44,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 91.69,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 91.5,
             "unit": "ms"
           }
         ]
