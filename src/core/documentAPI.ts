@@ -252,7 +252,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           }
 
           const batchInsertData: [number | string, DataplyTreeValue<Primitive>][] = []
-          for (const token of tokens) {
+          for (let i = 0, len = tokens.length; i < len; i++) {
+            const token = tokens[i]
             const keyToInsert = isFts ? this.getTokenKey(k as number, token as string) : k
             const entry = { k: k as number, v: token }
             batchInsertData.push([keyToInsert, entry])
@@ -329,26 +330,26 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     return data.magicString === 'document-dataply' && data.version === 1
   }
 
+  private flatten(obj: any, parentKey: string = '', result: FlattenedDocumentJSON = {}): FlattenedDocumentJSON {
+    for (const key in obj) {
+      const newKey = parentKey ? `${parentKey}.${key}` : key
+      if (typeof obj[key] === 'object' && obj[key] !== null) {
+        this.flatten(obj[key], newKey, result)
+      }
+      else {
+        result[newKey] = obj[key]
+      }
+    }
+    return result
+  }
+
   /**
    * returns flattened document
    * @param document 
    * @returns 
    */
   flattenDocument(document: T): FlattenedDocumentJSON {
-    const result: FlattenedDocumentJSON = {}
-    const flatten = (obj: any, parentKey: string = '') => {
-      for (const key in obj) {
-        const newKey = parentKey ? `${parentKey}.${key}` : key
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
-          flatten(obj[key], newKey)
-        }
-        else {
-          result[newKey] = obj[key]
-        }
-      }
-    }
-    flatten(document)
-    return result
+    return this.flatten(document, '', {})
   }
 
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
@@ -558,19 +559,19 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     matchedTokens: string[],
     filterValues?: Set<number>,
     order?: 'asc' | 'desc'
-  ): Promise<Set<number> | undefined> {
+  ): Promise<Set<number>> {
     const keys = new Set<number>()
-    for (const token of matchedTokens) {
+    for (let i = 0, len = matchedTokens.length; i < len; i++) {
+      const token = matchedTokens[i]
       const pairs = await candidate.tree.where(
         { primaryEqual: { v: token } } as any,
-        { order }
-      )
-      for (const c of pairs.values()) {
-        if (!c || typeof c.k !== 'number') continue
-        const dpk = c.k
-        if (filterValues === undefined || filterValues.has(dpk)) {
-          keys.add(dpk)
+        {
+          order,
         }
+      )
+      for (const pair of pairs.values()) {
+        if (filterValues && !filterValues.has(pair.k)) continue
+        keys.add(pair.k)
       }
     }
     return keys
@@ -586,7 +587,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     },
     filterValues?: Set<number>,
     order?: 'asc' | 'desc'
-  ): Promise<Set<number> | undefined> {
+  ): Promise<Set<number>> {
     return await candidate.tree.keys(
       candidate.condition as any,
       {
@@ -626,7 +627,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     let keys: Set<number> | undefined = undefined
     // Driver가 정렬 요건을 충족하면 전체 과정에서 정렬 순서를 유지하도록 sortOrder를 전달합니다.
     // 그렇지 않으면 트리 내부 정렬을 무시하도록(undefined) 처리합니다.
-    for (const candidate of candidates) {
+    for (let i = 0, len = candidates.length; i < len; i++) {
+      const candidate = candidates[i]
       const currentOrder = useIndexOrder ? sortOrder : undefined
       if (
         candidate.isFtsMatch &&
@@ -693,7 +695,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           tokens = tokenize(v, indexConfig)
         }
 
-        for (const token of tokens) {
+        for (let i = 0, len = tokens.length; i < len; i++) {
+          const token = tokens[i]
           const keyToInsert = isFts ? this.getTokenKey(dpk, token as string) : dpk
           const [error] = await catchPromise(tree.insert(keyToInsert, { k: dpk, v: token }))
           if (error) {
@@ -762,7 +765,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           if (isFts) {
             tokens = tokenize(v, indexConfig)
           }
-          for (const token of tokens) {
+          for (let j = 0, len = tokens.length; j < len; j++) {
+            const token = tokens[j]
             const keyToInsert = isFts ? this.getTokenKey(item.pk, token as string) : item.pk
             batchInsertData.push([keyToInsert, { k: item.pk, v: token }])
           }
@@ -830,7 +834,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           if (isFts && typeof oldV === 'string') {
             oldTokens = tokenize(oldV, indexConfig)
           }
-          for (const oldToken of oldTokens) {
+          for (let j = 0, len = oldTokens.length; j < len; j++) {
+            const oldToken = oldTokens[j]
             const keyToDelete = isFts ? this.getTokenKey(pk, oldToken as string) : pk
             await treeTx.delete(keyToDelete, { k: pk, v: oldToken })
           }
@@ -844,7 +849,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           }
 
           const batchInsertData: [string | number, DataplyTreeValue<Primitive>][] = []
-          for (const newToken of newTokens) {
+          for (let j = 0, len = newTokens.length; j < len; j++) {
+            const newToken = newTokens[j]
             const keyToInsert = isFts ? this.getTokenKey(pk, newToken as string) : pk
             batchInsertData.push([keyToInsert, { k: pk, v: newToken }])
           }
@@ -955,8 +961,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           if (isFts) {
             tokens = tokenize(v, indexConfig)
           }
-
-          for (const token of tokens) {
+          for (let j = 0, len = tokens.length; j < len; j++) {
+            const token = tokens[j]
             const keyToDelete = isFts ? this.getTokenKey(pk, token as string) : pk
             await tree.delete(keyToDelete, { k: pk, v: token })
           }
@@ -994,10 +1000,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     doc: DataplyDocument<T>,
     ftsConditions: { field: string, matchTokens: string[] }[]
   ): boolean {
-    for (const { field, matchTokens } of ftsConditions) {
-      const docValue = this.flattenDocument(doc)[field]
+    const flatDoc = this.flattenDocument(doc)
+    for (let i = 0, len = ftsConditions.length; i < len; i++) {
+      const { field, matchTokens } = ftsConditions[i]
+      const docValue = flatDoc[field]
       if (typeof docValue !== 'string') return false
-      for (const token of matchTokens) {
+      for (let j = 0, jLen = matchTokens.length; j < jLen; j++) {
+        const token = matchTokens[j]
         if (!docValue.includes(token)) return false
       }
     }
@@ -1025,13 +1034,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     initialChunkSize: number,
     ftsConditions: { field: string, matchTokens: string[] }[],
     tx: any
-  ): AsyncGenerator<{ doc: DataplyDocument<T>, rawSize: number }> {
+  ): AsyncGenerator<DataplyDocument<T>> {
     let i = startIdx
     const totalKeys = keys.length
     let currentChunkSize = initialChunkSize
 
     // 첫 번째 청크 prefetch
-    let nextChunkPromise: Promise<any[]> | null = null
+    let nextChunkPromise: Promise<(string | null)[]> | null = null
     if (i < totalKeys) {
       const endIdx = Math.min(i + currentChunkSize, totalKeys)
       nextChunkPromise = this.selectMany(keys.subarray(i, endIdx), false, tx)
@@ -1055,8 +1064,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         if (!s) continue
         const doc = JSON.parse(s)
         chunkTotalSize += s.length * 2
-        if (!this.verifyFts(doc, ftsConditions)) continue
-        yield { doc, rawSize: s.length * 2 }
+        if (ftsConditions.length > 0 && !this.verifyFts(doc, ftsConditions)) continue
+        yield doc
       }
 
       currentChunkSize = this.adjustChunkSize(currentChunkSize, chunkTotalSize)
@@ -1157,7 +1166,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
         // topK가 무한대인 경우 모든 문서를 배열에 수집
         const results: DataplyDocument<T>[] = []
-        for await (const { doc } of self.processChunkedKeys(
+        for await (const doc of self.processChunkedKeys(
           keys,
           0,
           self.options.pageSize,
@@ -1206,7 +1215,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       else {
         let yieldedCount = 0
         // offset부터 시작하여 limit개까지만 yield
-        for await (const { doc } of self.processChunkedKeys(
+        for await (const doc of self.processChunkedKeys(
           keys,
           offset,
           self.options.pageSize,
