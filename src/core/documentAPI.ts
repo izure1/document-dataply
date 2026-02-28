@@ -671,6 +671,66 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     return new Float64Array(Array.from(keys || []))
   }
 
+  /**
+   * 드라이버 인덱스만으로 PK를 가져옵니다. (교집합 없이)
+   * selectDocuments에서 사용하며, 나머지 조건(others)은 스트리밍 중 tree.verify()로 검증합니다.
+   * @returns 드라이버 키 배열, others 후보 목록, rollback 함수. 또는 null.
+   */
+  private async getDriverKeys(
+    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    orderBy?: keyof IC | '_id',
+    sortOrder: 'asc' | 'desc' = 'asc'
+  ): Promise<{
+    keys: Float64Array,
+    others: {
+      tree: BPTreeAsync<string | number, DataplyTreeValue<Primitive>>,
+      condition: any,
+      field: string,
+      isFtsMatch: boolean,
+      matchTokens?: string[]
+    }[],
+    rollback: () => void
+  } | null> {
+    const isQueryEmpty = Object.keys(query).length === 0
+    const normalizedQuery = isQueryEmpty ? { _id: { gte: 0 } } : query
+    const selectivity = await this.getSelectivityCandidate(
+      this.verboseQuery(normalizedQuery as any),
+      orderBy as string
+    )
+
+    if (!selectivity) return null
+
+    const { driver, others, rollback } = selectivity
+
+    // 드라이버의 정렬 순서 결정
+    const useIndexOrder = orderBy === undefined || driver.field === orderBy
+    const currentOrder = useIndexOrder ? sortOrder : undefined
+
+    // 드라이버만으로 키를 가져옴
+    let keys: Set<number>
+    if (
+      driver.isFtsMatch &&
+      driver.matchTokens &&
+      driver.matchTokens.length > 0
+    ) {
+      keys = await this.applyCandidateByFTS(
+        driver as any,
+        driver.matchTokens,
+        undefined,
+        currentOrder
+      )
+    }
+    else {
+      keys = await this.applyCandidate(driver as any, undefined, currentOrder)
+    }
+
+    return {
+      keys: new Float64Array(Array.from(keys)),
+      others: others as any,
+      rollback,
+    }
+  }
+
   private async insertDocumentInternal(document: T, tx: Transaction): Promise<{
     pk: number
     id: number
@@ -1046,15 +1106,26 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
   /**
    * Prefetch 방식으로 키 배열을 청크 단위로 조회하여 문서를 순회합니다.
-   * FTS 검증을 통과한 문서만 yield 합니다.
+   * FTS 검증 및 others 후보에 대한 tree.verify() 검증을 통과한 문서만 yield 합니다.
+   * 교집합 대신 스트리밍 중 검증하여 첫 결과 반환 시간을 단축합니다.
    */
-  private async *processChunkedKeys(
+  private async *processChunkedKeysWithVerify(
     keys: Float64Array,
     startIdx: number,
     initialChunkSize: number,
     ftsConditions: { field: string, matchTokens: string[] }[],
+    others: {
+      tree: BPTreeAsync<string | number, DataplyTreeValue<Primitive>>,
+      condition: any,
+      field: string,
+      isFtsMatch: boolean,
+      matchTokens?: string[]
+    }[],
     tx: any
   ): AsyncGenerator<DataplyDocument<T>> {
+    // others 중 FTS가 아닌 일반 조건만 verify 대상으로 분리
+    const verifyOthers = others.filter(o => !o.isFtsMatch)
+
     let i = startIdx
     const totalKeys = keys.length
     let currentChunkSize = initialChunkSize
@@ -1084,7 +1155,31 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         if (!s) continue
         const doc = JSON.parse(s)
         chunkTotalSize += s.length * 2
+
+        // FTS 검증
         if (ftsConditions.length > 0 && !this.verifyFts(doc, ftsConditions)) continue
+
+        // others 조건 검증: 각 필드의 값을 tree.verify()로 확인
+        if (verifyOthers.length > 0) {
+          const flatDoc = this.flattenDocument(doc)
+          let passed = true
+          for (let k = 0, kLen = verifyOthers.length; k < kLen; k++) {
+            const other = verifyOthers[k]
+            const fieldValue = flatDoc[other.field]
+            if (fieldValue === undefined) {
+              passed = false
+              break
+            }
+            // tree.verify()에 전달할 값 구성: { k: pk, v: fieldValue }
+            const treeValue = { k: doc._id, v: fieldValue }
+            if (!other.tree.verify(treeValue as any, other.condition)) {
+              passed = false
+              break
+            }
+          }
+          if (!passed) continue
+        }
+
         yield doc
       }
 
@@ -1149,13 +1244,20 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         }
       }
 
-      // 인덱스를 통해 조건에 맞는 PK(기본 키) 목록 조회
-      const keys = await self.getKeys(query, orderByField, sortOrder)
-      if (keys.length === 0) return
+      // 드라이버 인덱스만으로 PK 목록 조회 (교집합 없이)
+      const driverResult = await self.getDriverKeys(query, orderByField, sortOrder)
+      if (!driverResult) return
+      const { keys, others, rollback } = driverResult
+      if (keys.length === 0) {
+        rollback()
+        return
+      }
 
       // Driver 인덱스가 orderBy 필드와 일치하는지 판별하여 정렬 전략 결정
+      const isQueryEmpty = Object.keys(query).length === 0
+      const normalizedQuery = isQueryEmpty ? { _id: { gte: 0 } } : query
       const selectivity = await self.getSelectivityCandidate(
-        self.verboseQuery(query) as any,
+        self.verboseQuery(normalizedQuery as any),
         orderByField as string
       )
       const isDriverOrderByField = (
@@ -1164,88 +1266,96 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       )
       if (selectivity) selectivity.rollback()
 
-      // ────────────────────────────────────────────────
-      // 경로 1: 메모리 내 정렬 (driver가 orderBy를 커버하지 못하는 경우)
-      // 전체 문서를 수집한 후 orderBy 기준으로 정렬하여 반환합니다.
-      // ────────────────────────────────────────────────
-      if (!isDriverOrderByField && orderByField) {
-        // offset + limit 만큼만 유지하면 되므로, 힙 크기를 topK로 제한
-        const topK = limit === Infinity ? Infinity : offset + limit
-        let heap: BinaryHeap<DataplyDocument<T>> | null = null
+      try {
+        // ────────────────────────────────────────────────
+        // 경로 1: 메모리 내 정렬 (driver가 orderBy를 커버하지 못하는 경우)
+        // 전체 문서를 수집한 후 orderBy 기준으로 정렬하여 반환합니다.
+        // ────────────────────────────────────────────────
+        if (!isDriverOrderByField && orderByField) {
+          // offset + limit 만큼만 유지하면 되므로, 힙 크기를 topK로 제한
+          const topK = limit === Infinity ? Infinity : offset + limit
+          let heap: BinaryHeap<DataplyDocument<T>> | null = null
 
-        // topK가 유한할 때만 최대 힙을 사용하여 상위 K개만 유지
-        if (topK !== Infinity) {
-          heap = new BinaryHeap((a: DataplyDocument<T>, b: DataplyDocument<T>) => {
+          // topK가 유한할 때만 최대 힙을 사용하여 상위 K개만 유지
+          if (topK !== Infinity) {
+            heap = new BinaryHeap((a: DataplyDocument<T>, b: DataplyDocument<T>) => {
+              const aVal = (a as any)[orderByField] ?? (a as any)._id
+              const bVal = (b as any)[orderByField] ?? (b as any)._id
+              const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+              // 힙의 루트가 가장 "나쁜" 값이 되도록 역순 비교
+              return sortOrder === 'asc' ? -cmp : cmp
+            })
+          }
+
+          // topK가 무한대인 경우 모든 문서를 배열에 수집
+          const results: DataplyDocument<T>[] = []
+          for await (const doc of self.processChunkedKeysWithVerify(
+            keys,
+            0,
+            self.options.pageSize,
+            ftsConditions,
+            others,
+            tx
+          )) {
+            if (heap) {
+              // 힙이 아직 topK개 미만이면 무조건 추가
+              if (heap.size < topK) heap.push(doc)
+              else {
+                // 현재 문서가 힙의 루트(최악)보다 나으면 교체
+                const top = heap.peek()
+                if (top) {
+                  const aVal = (doc as any)[orderByField] ?? (doc as any)._id
+                  const bVal = (top as any)[orderByField] ?? (top as any)._id
+                  const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+                  if (sortOrder === 'asc' ? cmp < 0 : cmp > 0) heap.replace(doc)
+                }
+              }
+            }
+            else {
+              results.push(doc)
+            }
+          }
+
+          // 최종 정렬: 힙 또는 배열의 문서를 orderBy 기준으로 안정 정렬
+          const finalDocs = heap ? heap.toArray() : results
+          finalDocs.sort((a, b) => {
             const aVal = (a as any)[orderByField] ?? (a as any)._id
             const bVal = (b as any)[orderByField] ?? (b as any)._id
             const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-            // 힙의 루트가 가장 "나쁜" 값이 되도록 역순 비교
-            return sortOrder === 'asc' ? -cmp : cmp
+            return sortOrder === 'asc' ? cmp : -cmp
           })
-        }
 
-        // topK가 무한대인 경우 모든 문서를 배열에 수집
-        const results: DataplyDocument<T>[] = []
-        for await (const doc of self.processChunkedKeys(
-          keys,
-          0,
-          self.options.pageSize,
-          ftsConditions,
-          tx
-        )) {
-          if (heap) {
-            // 힙이 아직 topK개 미만이면 무조건 추가
-            if (heap.size < topK) heap.push(doc)
-            else {
-              // 현재 문서가 힙의 루트(최악)보다 나으면 교체
-              const top = heap.peek()
-              if (top) {
-                const aVal = (doc as any)[orderByField] ?? (doc as any)._id
-                const bVal = (top as any)[orderByField] ?? (top as any)._id
-                const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-                if (sortOrder === 'asc' ? cmp < 0 : cmp > 0) heap.replace(doc)
-              }
-            }
-          }
-          else {
-            results.push(doc)
+          // offset/limit 적용 후 결과 반환
+          const end = limit === Infinity ? undefined : offset + limit
+          const limitedResults = finalDocs.slice(offset, end)
+          for (let j = 0, len = limitedResults.length; j < len; j++) {
+            yield limitedResults[j]
           }
         }
-
-        // 최종 정렬: 힙 또는 배열의 문서를 orderBy 기준으로 안정 정렬
-        const finalDocs = heap ? heap.toArray() : results
-        finalDocs.sort((a, b) => {
-          const aVal = (a as any)[orderByField] ?? (a as any)._id
-          const bVal = (b as any)[orderByField] ?? (b as any)._id
-          const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-          return sortOrder === 'asc' ? cmp : -cmp
-        })
-
-        // offset/limit 적용 후 결과 반환
-        const end = limit === Infinity ? undefined : offset + limit
-        const limitedResults = finalDocs.slice(offset, end)
-        for (let j = 0, len = limitedResults.length; j < len; j++) {
-          yield limitedResults[j]
+        // ────────────────────────────────────────────────
+        // 경로 2: 순차 스트리밍 (driver가 orderBy를 커버하는 경우)
+        // 인덱스 순서를 그대로 활용하여 offset부터 limit개를 순차 반환합니다.
+        // ────────────────────────────────────────────────
+        else {
+          let yieldedCount = 0
+          // offset부터 시작하여 limit개까지만 yield
+          for await (const doc of self.processChunkedKeysWithVerify(
+            keys,
+            offset,
+            self.options.pageSize,
+            ftsConditions,
+            others,
+            tx
+          )) {
+            if (yieldedCount >= limit) break
+            yield doc
+            yieldedCount++
+          }
         }
       }
-      // ────────────────────────────────────────────────
-      // 경로 2: 순차 스트리밍 (driver가 orderBy를 커버하는 경우)
-      // 인덱스 순서를 그대로 활용하여 offset부터 limit개를 순차 반환합니다.
-      // ────────────────────────────────────────────────
-      else {
-        let yieldedCount = 0
-        // offset부터 시작하여 limit개까지만 yield
-        for await (const doc of self.processChunkedKeys(
-          keys,
-          offset,
-          self.options.pageSize,
-          ftsConditions,
-          tx
-        )) {
-          if (yieldedCount >= limit) break
-          yield doc
-          yieldedCount++
-        }
+      finally {
+        // others 후보 트랜잭션 정리
+        rollback()
       }
     }, tx)
 
