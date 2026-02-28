@@ -519,6 +519,26 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       // orderBy가 조건에 없으면 ChooseDriver로 선택도 기반 선택
     }
 
+    // FTS match 후보 우선 처리 (match의 실질 score: 90)
+    // equal/primaryEqual(100)이 다른 후보에 있을 때만 ChooseDriver에 위임
+    const ftsCandidate = candidates.find(
+      c => c.isFtsMatch && c.matchTokens && c.matchTokens.length > 0
+    )
+    if (ftsCandidate) {
+      const hasHigherPriority = candidates.some(c => {
+        if (c === ftsCandidate) return false
+        const cond = c.condition
+        return 'equal' in cond || 'primaryEqual' in cond
+      })
+      if (!hasHigherPriority) {
+        return {
+          driver: ftsCandidate as any,
+          others: candidates.filter(c => c !== ftsCandidate) as any,
+          rollback,
+        }
+      }
+    }
+
     // 기존 로직: ChooseDriver 사용 (선택도 기반)
     let res = BPTreeAsync.ChooseDriver(candidates)
     if (!res && candidates.length > 0) {
