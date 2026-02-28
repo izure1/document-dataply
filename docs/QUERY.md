@@ -35,6 +35,7 @@ In addition to simple matching, various comparison operators are available.
 | `notEqual` | Not Equal To | `role: { notEqual: 'admin' }` |
 | `like` | Pattern Matching (SQL style) | `title: { like: 'Node%' }` (`%` is a wildcard) |
 | `or` | Matches any value in the array | `tags: { or: ['news', 'tech'] }` |
+| `match` | Full-text search (Requires FTS Index) | `content: { match: 'search' }` |
 
 ### Complex Condition Example
 You can combine multiple operators for range queries.
@@ -65,7 +66,37 @@ const results = await db.select({
 const filtered = results.filter(doc => doc.nonIndexedField === 'other-value');
 ```
 
-## 4. Sorting and Pagination (Options)
+## 4. Full-Text Search (FTS) Indexing
+
+To use the `match` operator, the field must be explicitly configured as an **FTS Index**. A standard boolean index (`true`/`false`) is not sufficient for full-text search.
+
+### FTS Configuration
+
+When defining your database, use the following structure for FTS indices:
+
+```typescript
+const db = DocumentDataply.Define<MyDocument>().Options({
+  indices: {
+    // Standard Index: Supports equal, lt, gt, gte, lte, like, or
+    category: true, 
+
+    // FTS Index: Supports ONLY 'match'
+    // Whitespace tokenizer: Splits by whitespace
+    content: { type: 'fts', tokenizer: 'whitespace' },
+
+    // N-gram tokenizer: Splits into chunks of 'gramSize'
+    title: { type: 'fts', tokenizer: 'ngram', gramSize: 2 }
+  }
+}).Open('my-database.db');
+```
+
+> [!IMPORTANT]
+> **FTS Index Constraints**:
+> 1. Fields indexed with `type: 'fts'` **ONLY support the `match` operator**. 
+> 2. You **cannot** use `equal`, `lt`, `gt`, `lte`, `gte`, `like`, or `or` on FTS-indexed fields.
+> 3. If you need both equality checks and full-text search on the same field, you must choose one or handle the other via manual filtering after the query.
+
+## 5. Sorting and Pagination (Options)
 
 You can control the order and number of results using the `options` argument (the second parameter of `db.select()`).
 
@@ -101,6 +132,6 @@ const user = await db.select({
 }).drain();
 ```
 
-## 6. Performance Optimization: Selectivity
+## 7. Performance Optimization: Selectivity
 
 When multiple fields are included in a query, the engine calculates **Selectivity**. It analyzes data distribution to prioritize the index that best reduces the result set (i.e., fields with more unique values) to maximize search efficiency.

@@ -124,8 +124,12 @@ const ids = await db.insertBatch([
 | `equal`, `notEqual` | Equality check |
 | `like` | Pattern matching |
 | `or` | Matching within an array |
+| `match` | Full-text search (Requires FTS Index) |
 
 For detailed operator usage, index constraints (including full scans), and sorting methods, see the [Query Guide (QUERY.md)](./docs/QUERY.md).
+
+> [!IMPORTANT]
+> **Full-Text Search (match)**: To use the `match` operator, you must configure the field as an FTS index (e.g., `{ type: 'fts', tokenizer: 'whitespace' }`). Standard boolean indices do not support `match`. See [QUERY.md](./docs/QUERY.md#4-full-text-search-fts-indexing) for details.
 
 ### Transactions
 
