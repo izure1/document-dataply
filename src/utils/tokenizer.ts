@@ -10,13 +10,14 @@ export function ngramTokenize(text: string, gramSize: number): string[] {
   const tokens = new Set<string>()
   const words = text.split(/\s+/).filter(Boolean)
 
-  for (const word of words) {
+  for (let i = 0, len = words.length; i < len; i++) {
+    const word = words[i]
     if (word.length < gramSize) {
       if (word.length > 0) tokens.add(word)
       continue
     }
-    for (let i = 0; i <= word.length - gramSize; i++) {
-      tokens.add(word.slice(i, i + gramSize))
+    for (let j = 0, wLen = word.length; j <= wLen - gramSize; j++) {
+      tokens.add(word.slice(j, j + gramSize))
     }
   }
   return Array.from(tokens)

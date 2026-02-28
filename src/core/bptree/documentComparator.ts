@@ -1,5 +1,5 @@
-import { ValueComparator } from 'dataply'
 import type { DataplyTreeValue, Primitive } from '../../types'
+import { ValueComparator } from 'dataply'
 
 export class DocumentValueComparator<T extends DataplyTreeValue<U>, U extends Primitive> extends ValueComparator<T> {
   primaryAsc(a: T, b: T): number {

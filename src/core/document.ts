@@ -7,9 +7,7 @@ import type {
   DocumentDataplyQueryOptions,
   IndexConfig
 } from '../types'
-import {
-  Transaction
-} from 'dataply'
+import { Transaction } from 'dataply'
 import { DocumentDataplyAPI } from './documentAPI'
 
 export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> {

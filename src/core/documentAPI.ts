@@ -1171,8 +1171,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
               break
             }
             // tree.verify()에 전달할 값 구성: { k: pk, v: fieldValue }
-            const treeValue = { k: doc._id, v: fieldValue }
-            if (!other.tree.verify(treeValue as any, other.condition)) {
+            const treeValue: DataplyTreeValue<Primitive> = { k: doc._id, v: fieldValue }
+            if (!other.tree.verify(treeValue, other.condition)) {
               passed = false
               break
             }
