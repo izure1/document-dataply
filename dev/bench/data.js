@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772312645850,
+  "lastUpdate": 1772317522966,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -1304,6 +1304,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 87.58,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "8ac99f14d7ed258d2c65437960ca456fbdeb8ed3",
+          "message": "fix: 다량의 문서를 조회할 경우, 콜스택 최대치를 넘어서는 오류를 수정합니다",
+          "timestamp": "2026-03-01T07:23:42+09:00",
+          "tree_id": "75bfc0e38c3dbd9252e8acc4d8729f0a04e084a2",
+          "url": "https://github.com/izure1/document-dataply/commit/8ac99f14d7ed258d2c65437960ca456fbdeb8ed3"
+        },
+        "date": 1772317522529,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2968.02,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 18.83,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 17.23,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 4.57,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 2873.09,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 88.13,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 90.31,
             "unit": "ms"
           }
         ]
