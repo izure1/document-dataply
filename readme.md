@@ -58,12 +58,15 @@ async function main() {
   await db.init();
 
   // Register indices
+  // use transaction to ensure atomicity
   await db.migration(1, async (tx) => {
-    await db.createIndex('name', { type: 'btree', fields: ['name'] });
-    await db.createIndex('tags_0', { type: 'btree', fields: ['tags.0'] });
+    await db.createIndex('name', { type: 'btree', fields: ['name'] }, tx);
+    await db.createIndex('tags_0', { type: 'btree', fields: ['tags.0'] }, tx);
   
     // Composite Index support
-    await db.createIndex('idx_name_age', { type: 'btree', fields: ['name', 'age'] });
+    await db.createIndex('idx_name_age', { type: 'btree', fields: ['name', 'age'] }, tx);
+
+    console.log('Migration completed successfully');
   });
 
   // Insert document
