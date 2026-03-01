@@ -791,14 +791,19 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           else if ('primaryEqual' in condition || 'equal' in condition) {
             score += 100
           }
-          else if ('primaryGte' in condition || 'primaryLte' in condition ||
+          else if (
+            'primaryGte' in condition || 'primaryLte' in condition ||
             'primaryGt' in condition || 'primaryLt' in condition ||
             'gte' in condition || 'lte' in condition ||
-            'gt' in condition || 'lt' in condition) {
+            'gt' in condition || 'lt' in condition
+          ) {
             score += 50
           }
           else if ('primaryOr' in condition || 'or' in condition) {
             score += 20
+          }
+          else if ('like' in condition) {
+            score += 15
           }
           else {
             score += 10
