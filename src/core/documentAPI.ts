@@ -554,6 +554,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       lastId: 0,
+      schemeVersion: 0,
       indices,
     }
   }
@@ -605,6 +606,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
     const metadata = await this.getMetadata(tx)
+    const innerMetadata = await this.getDocumentInnerMetadata(tx)
     const indices: string[] = []
     for (const name of this.registeredIndices.keys()) {
       if (name !== '_id') {
@@ -616,6 +618,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       pageCount: metadata.pageCount,
       rowCount: metadata.rowCount,
       indices,
+      schemeVersion: innerMetadata.schemeVersion ?? 0,
     }
   }
 
@@ -629,6 +632,30 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
   async updateDocumentInnerMetadata(metadata: DocumentDataplyInnerMetadata, tx: Transaction): Promise<void> {
     await this.update(1, JSON.stringify(metadata), tx)
+  }
+
+  /**
+   * Run a migration if the current schemeVersion is lower than the target version.
+   * After the callback completes, schemeVersion is updated to the target version.
+   * @param version The target scheme version
+   * @param callback The migration callback
+   * @param tx Optional transaction
+   */
+  async migration(
+    version: number,
+    callback: (tx: Transaction) => Promise<void>,
+    tx?: Transaction
+  ): Promise<void> {
+    await this.runWithDefault(async (tx) => {
+      const innerMetadata = await this.getDocumentInnerMetadata(tx)
+      const currentVersion = innerMetadata.schemeVersion ?? 0
+      if (currentVersion < version) {
+        await callback(tx)
+        innerMetadata.schemeVersion = version
+        innerMetadata.updatedAt = Date.now()
+        await this.updateDocumentInnerMetadata(innerMetadata, tx)
+      }
+    }, tx)
   }
 
   /**

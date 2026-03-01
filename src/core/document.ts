@@ -94,6 +94,22 @@ export class DocumentDataply<T extends DocumentJSON> {
   }
 
   /**
+   * Run a migration if the current schemeVersion is lower than the target version.
+   * The callback is only executed when the database's schemeVersion is below the given version.
+   * After the callback completes, schemeVersion is updated to the target version.
+   * @param version The target scheme version
+   * @param callback The migration callback receiving a transaction
+   * @param tx Optional transaction
+   */
+  async migration(
+    version: number,
+    callback: (tx: Transaction) => Promise<void>,
+    tx?: Transaction
+  ): Promise<void> {
+    await this.api.migration(version, callback, tx)
+  }
+
+  /**
    * Get the metadata of the document database
    */
   async getMetadata(tx?: Transaction): Promise<DocumentDataplyMetadata> {

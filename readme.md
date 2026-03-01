@@ -164,6 +164,19 @@ For detailed usage and error handling patterns, see the [Transaction Guide (TRAN
 
 For details on streaming mechanisms and bandwidth optimization tips, see the [Stream Guide (STREAM.md)](./docs/STREAM.md).
 
+### Schema Migration
+
+As your document structure evolves, you can use the `migration()` method to safely update your database. This method uses a `schemeVersion` to track which migrations have been applied.
+
+```typescript
+await db.migration(1, async (tx) => {
+  // Add a new index for an existing database
+  await db.createIndex('age', { type: 'btree', fields: ['age'] }, tx);
+});
+```
+
+For more details on handling database evolution, see the [Migration Guide (MIGRATION.md)](./docs/MIGRATION.md).
+
 ## Tips and Advanced Features
 
 For more information on performance optimization and advanced features, see [TIPS.md](./docs/TIPS.md).
@@ -193,6 +206,12 @@ Removes a named index from the database.
 ### `db.init()`
 Initializes the database and sets up system-managed indices. It also triggers backfilling for indices registered before `init()`.
 
+### `db.migration(version, callback, tx?)`
+Runs a migration callback if the current `schemeVersion` is lower than the target `version`.
+- `version`: The target scheme version (number).
+- `callback`: An async function `(tx: Transaction) => Promise<void>`.
+- `tx`: Optional transaction.
+
 ### `db.insert(document, tx?)`
 Inserts a single document. Each document is automatically assigned a unique, immutable `_id` field. The method returns this `_id` (`number`).
 
@@ -216,8 +235,9 @@ Deletes documents matching the query. Returns the number of deleted documents.
 
 ### `db.getMetadata(tx?)`
 Returns physical storage information and index metadata.
-- Returns `Promise<{ pageSize, pageCount, rowCount, indices }>`
+- Returns `Promise<{ pageSize, pageCount, rowCount, indices, schemeVersion }>`
 - `indices`: List of user-defined index names.
+- `schemeVersion`: The current schema version of the database.
 
 ### `db.createTransaction()`
 Returns a new `Transaction` object.

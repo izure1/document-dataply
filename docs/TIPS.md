@@ -30,6 +30,7 @@ Supported methods within a transaction:
 - `db.createIndex(name, options, tx)`
 - `db.dropIndex(name, tx)`
 - `db.getMetadata(tx)`
+- `db.migration(version, callback, tx)`
 
 ## 4. Bulk Insertion Performance (Massive Insertion)
 

@@ -33,6 +33,7 @@ export interface DocumentDataplyInnerMetadata {
   createdAt: number
   updatedAt: number
   lastId: number
+  schemeVersion: number
   indices: {
     [key: string]: [
       number,
@@ -58,6 +59,10 @@ export interface DocumentDataplyMetadata {
    * The list of user-created index names (excludes internal '_id' index).
    */
   indices: string[]
+  /**
+   * The current scheme version of the database.
+   */
+  schemeVersion: number
 }
 
 export type DataplyDocumentBase = { _id: number }
