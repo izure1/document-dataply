@@ -765,28 +765,32 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
-      isFtsMatch: false
+      isFtsMatch: false,
+      isIndexOrderSupported: boolean
     } | {
       tree: BPTreeAsync<string, V>
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
       isFtsMatch: true,
-      matchTokens: string[]
+      matchTokens: string[],
+      isIndexOrderSupported: boolean
     }),
     others: ({
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
-      isFtsMatch: false
+      isFtsMatch: false,
+      isIndexOrderSupported: boolean
     } | {
       tree: BPTreeAsync<string, V>
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
       isFtsMatch: true,
-      matchTokens: string[]
+      matchTokens: string[],
+      isIndexOrderSupported: boolean
     })[],
     // 복합 인덱스의 non-primary 필드 검증 조건
     compositeVerifyConditions: {
@@ -804,7 +808,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       isFtsMatch: boolean,
       matchTokens?: string[],
       score: number,
-      compositeVerifyFields: string[]
+      compositeVerifyFields: string[],
+      isIndexOrderSupported: boolean
     }[] = []
 
     for (const [indexName, config] of this.registeredIndices) {
@@ -822,43 +827,78 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
         // 점수 계산
         let score = 0
-        const coveredFields = config.fields.filter(f => queryFields.has(f))
-        score += coveredFields.length
+        let isConsecutive = true
+        const coveredFields: string[] = []
+        const compositeVerifyFields: string[] = []
 
-        // 조건 타입에 따른 점수 가산
-        if (condition) {
-          if (typeof condition !== 'object' || condition === null) {
-            score += 100 // direct value = equal (highest)
+        for (const field of config.fields) {
+          if (!queryFields.has(field)) {
+            // 이후의 필드는 연속된(프리픽스) 검색에 활용될 수 없음
+            isConsecutive = false
+            continue
           }
-          else if ('primaryEqual' in condition || 'equal' in condition) {
-            score += 100
+
+          coveredFields.push(field)
+          if (field !== primaryField) {
+            compositeVerifyFields.push(field)
           }
-          else if (
-            'primaryGte' in condition || 'primaryLte' in condition ||
-            'primaryGt' in condition || 'primaryLt' in condition ||
-            'gte' in condition || 'lte' in condition ||
-            'gt' in condition || 'lt' in condition
-          ) {
-            score += 50
-          }
-          else if ('primaryOr' in condition || 'or' in condition) {
-            score += 20
-          }
-          else if ('like' in condition) {
-            score += 15
-          }
-          else {
-            score += 10
+          score += 1 // 기본적으로 필드가 커버되면 1점 가산
+
+          if (isConsecutive) {
+            const cond = query[field] as any
+            if (cond !== undefined) {
+              if (typeof cond !== 'object' || cond === null) {
+                score += 100 // direct value = equal
+              }
+              else if ('primaryEqual' in cond || 'equal' in cond) {
+                score += 100
+              }
+              else if (
+                'primaryGte' in cond || 'primaryLte' in cond ||
+                'primaryGt' in cond || 'primaryLt' in cond ||
+                'gte' in cond || 'lte' in cond ||
+                'gt' in cond || 'lt' in cond
+              ) {
+                score += 50
+                isConsecutive = false // 범위 검색 이후의 필드는 BTree prefix 검색에 활용 불가
+              }
+              else if ('primaryOr' in cond || 'or' in cond) {
+                score += 20
+                isConsecutive = false
+              }
+              else if ('like' in cond) {
+                score += 15
+                isConsecutive = false
+              }
+              else {
+                score += 10
+                isConsecutive = false
+              }
+            }
           }
         }
 
-        // orderBy 필드가 이 인덱스의 primary field와 일치하면 보너스
-        if (orderByField && primaryField === orderByField) {
-          score += 200
+        // orderBy 필드가 이 인덱스로 정렬을 보장하는지 확인
+        let isIndexOrderSupported = false
+        if (orderByField) {
+          for (const field of config.fields) {
+            if (field === orderByField) {
+              isIndexOrderSupported = true
+              break
+            }
+            // 현재 확인하는 필드가 단일값(equal)매치인지 확인, 아니면 그 다음 필드는 정렬 보장 불가
+            const cond = query[field] as any
+            let isExactMatch = false
+            if (cond !== undefined) {
+              if (typeof cond !== 'object' || cond === null) isExactMatch = true
+              else if ('primaryEqual' in cond || 'equal' in cond) isExactMatch = true
+            }
+            if (!isExactMatch) break
+          }
+          if (isIndexOrderSupported) {
+            score += 200
+          }
         }
-
-        // 복합 인덱스에서 primary 필드 외에 쿼리에 포함된 필드들
-        const compositeVerifyFields = coveredFields.filter(f => f !== primaryField)
 
         candidates.push({
           tree: treeTx as unknown as BPTreeAsync<string | number, V>,
@@ -867,7 +907,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           indexName,
           isFtsMatch: false,
           score,
-          compositeVerifyFields
+          compositeVerifyFields,
+          isIndexOrderSupported
         })
       }
       else if (config.type === 'fts') {
@@ -889,7 +930,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           isFtsMatch: true,
           matchTokens,
           score: 90,
-          compositeVerifyFields: []
+          compositeVerifyFields: [],
+          isIndexOrderSupported: false
         })
       }
     }
@@ -1015,8 +1057,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     const { driver, others, rollback } = selectivity
 
     // 2. 실행 계획 결정
-    // Driver 필드가 orderBy와 일치할 때만 인덱스 순서를 사용합니다.
-    const useIndexOrder = orderBy === undefined || driver.field === orderBy
+    // Driver가 지정된 orderBy 순서를 지원(보장)하는지 확인합니다.
+    const useIndexOrder = orderBy === undefined || driver.isIndexOrderSupported
     const candidates = [driver, ...others]
 
     // 3. 모든 후보를 순회하며 필터링 수행
@@ -1085,7 +1127,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     const { driver, others, compositeVerifyConditions, rollback } = selectivity
 
     // 드라이버의 정렬 순서 결정
-    const useIndexOrder = orderBy === undefined || driver.field === orderBy
+    const useIndexOrder = orderBy === undefined || driver.isIndexOrderSupported
     const currentOrder = useIndexOrder ? sortOrder : undefined
 
     // 드라이버만으로 키를 가져옴
