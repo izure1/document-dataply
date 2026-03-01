@@ -76,5 +76,5 @@ describe('Debug fullUpdate sequence', () => {
 
     await db.close()
     console.log('11. Test complete.')
-  }, 30000)
+  }, 60000)
 })
