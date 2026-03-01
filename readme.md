@@ -177,10 +177,18 @@ For more information on performance optimization and advanced features, see [TIP
 
 ## API Reference
 
-### `db.createIndex(name, options)`
+### `db.createIndex(name, options, tx?)`
 Registers or creates a named index. Can be called at any time.
 - `options`: `{ type: 'btree', fields: string[] }` or `{ type: 'fts', fields: string, tokenizer: ... }`.
+- `tx`: Optional transaction.
 - Returns `Promise<this>` for chaining.
+
+### `db.dropIndex(name, tx?)`
+Removes a named index from the database.
+- `name`: The name of the index to drop.
+- `tx`: Optional transaction.
+- Returns `Promise<this>` for chaining.
+- Note: The internal `_id` index cannot be dropped.
 
 ### `db.init()`
 Initializes the database and sets up system-managed indices. It also triggers backfilling for indices registered before `init()`.
@@ -207,7 +215,9 @@ Fully replaces documents matching the query while preserving their `_id`. Return
 Deletes documents matching the query. Returns the number of deleted documents.
 
 ### `db.getMetadata(tx?)`
-Returns physical storage information (number of pages, number of rows, etc.).
+Returns physical storage information and index metadata.
+- Returns `Promise<{ pageSize, pageCount, rowCount, indices }>`
+- `indices`: List of user-defined index names.
 
 ### `db.createTransaction()`
 Returns a new `Transaction` object.

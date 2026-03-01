@@ -41,6 +41,9 @@ The following methods accept a transaction object as an argument:
 - `db.partialUpdate(query, updates, tx)`
 - `db.fullUpdate(query, doc, tx)`
 - `db.delete(query, tx)`
+- `db.createIndex(name, options, tx)`
+- `db.dropIndex(name, tx)`
+- `db.getMetadata(tx)`
 
 ## 4. Concurrency Control and Isolation
 

@@ -16,6 +16,21 @@ For more details, see the [Query Guide (QUERY.md)](./QUERY.md).
 
 For more details, see the [Stream Guide (STREAM.md)](./STREAM.md).
 
+## 3. Transactional Operations
+
+When using transactions, you can pass a transaction object (`tx`) to various database methods. This ensures atomicity for a series of operations. Index management operations are also transactional.
+
+Supported methods within a transaction:
+- `db.insert(doc, tx)`
+- `db.insertBatch(docs, tx)`
+- `db.select(query, options, tx)`
+- `db.partialUpdate(query, updates, tx)`
+- `db.fullUpdate(query, doc, tx)`
+- `db.delete(query, tx)`
+- `db.createIndex(name, options, tx)`
+- `db.dropIndex(name, tx)`
+- `db.getMetadata(tx)`
+
 ## 4. Bulk Insertion Performance (Massive Insertion)
 
 Using `insertBatch()` is much faster than calling a single `insert()` in a loop.
@@ -43,6 +58,10 @@ await db.init();
 // Even after init, you can create a new index.
 // This will popluate existing data into the index automatically.
 await db.createIndex('idx_email', { type: 'btree', fields: ['email'] });
+
+// You can also drop an index manually at any time.
+// This will clean up both internal metadata and physical index files.
+await db.dropIndex('idx_email');
 ```
 
 ## 6. Composite Index Tips
