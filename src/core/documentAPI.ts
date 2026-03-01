@@ -689,7 +689,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       isFtsMatch: boolean,
       matchTokens?: string[]
     }[],
-    rollback: () => void
+    isDriverOrderByField: boolean,
+    rollback: () => void,
   } | null> {
     const isQueryEmpty = Object.keys(query).length === 0
     const normalizedQuery = isQueryEmpty ? { _id: { gte: 0 } } : query
@@ -727,6 +728,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     return {
       keys: new Float64Array(Array.from(keys)),
       others: others as any,
+      isDriverOrderByField: useIndexOrder,
       rollback,
     }
   }
@@ -1247,24 +1249,11 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       // 드라이버 인덱스만으로 PK 목록 조회 (교집합 없이)
       const driverResult = await self.getDriverKeys(query, orderByField, sortOrder)
       if (!driverResult) return
-      const { keys, others, rollback } = driverResult
+      const { keys, others, isDriverOrderByField, rollback } = driverResult
       if (keys.length === 0) {
         rollback()
         return
       }
-
-      // Driver 인덱스가 orderBy 필드와 일치하는지 판별하여 정렬 전략 결정
-      const isQueryEmpty = Object.keys(query).length === 0
-      const normalizedQuery = isQueryEmpty ? { _id: { gte: 0 } } : query
-      const selectivity = await self.getSelectivityCandidate(
-        self.verboseQuery(normalizedQuery as any),
-        orderByField as string
-      )
-      const isDriverOrderByField = (
-        orderByField === undefined ||
-        (selectivity && selectivity.driver.field === orderByField)
-      )
-      if (selectivity) selectivity.rollback()
 
       try {
         // ────────────────────────────────────────────────
