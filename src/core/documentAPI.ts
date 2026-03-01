@@ -658,9 +658,12 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       const currentVersion = innerMetadata.schemeVersion ?? 0
       if (currentVersion < version) {
         await callback(tx)
-        innerMetadata.schemeVersion = version
-        innerMetadata.updatedAt = Date.now()
-        await this.updateDocumentInnerMetadata(innerMetadata, tx)
+        // 콜백 내부에서 createIndex/dropIndex가 메타데이터를 변경했을 수 있으므로
+        // 최신 메타데이터를 다시 읽어서 schemeVersion만 업데이트
+        const freshMetadata = await this.getDocumentInnerMetadata(tx)
+        freshMetadata.schemeVersion = version
+        freshMetadata.updatedAt = Date.now()
+        await this.updateDocumentInnerMetadata(freshMetadata, tx)
       }
     }, tx)
   }
