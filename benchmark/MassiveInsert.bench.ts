@@ -34,15 +34,13 @@ async function main() {
 
     const db = DocumentDataply.Define<MassiveDoc>().Options({
       wal: dbPath + '.wal',
-      pageCacheCapacity: 100000,
-      indices: {
-        age: true,
-        gender: true,
-        company: true,
-        title: { type: 'fts', tokenizer: 'whitespace' },
-        content: { type: 'fts', tokenizer: 'whitespace' }
-      }
+      pageCacheCapacity: 100000
     }).Open(dbPath)
+    await db.createIndex('age', { type: 'btree', fields: ['age'] })
+    await db.createIndex('gender', { type: 'btree', fields: ['gender'] })
+    await db.createIndex('company', { type: 'btree', fields: ['company'] })
+    await db.createIndex('title', { type: 'fts', fields: 'title', tokenizer: 'whitespace' })
+    await db.createIndex('content', { type: 'fts', fields: 'content', tokenizer: 'whitespace' })
     await db.init()
 
     // 1. Insert Performance
