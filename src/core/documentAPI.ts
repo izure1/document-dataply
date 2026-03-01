@@ -476,14 +476,10 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       }
 
       // 대상 인덱스당 하나의 트랜잭션 생성
-      const indexTxMap: Record<
+      let indexTxMap: Record<
         string,
         BPTreeAsyncTransaction<string | number, DataplyTreeValue<Primitive>>
       > = {}
-      const indexEntryMap: Map<
-        BPTreeAsyncTransaction<string | number, DataplyTreeValue<Primitive>>,
-        DataplyTreeValue<Primitive>[]
-      > = new Map()
 
       for (const indexName of backfillTargets) {
         const tree = this.trees.get(indexName)
@@ -493,6 +489,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       }
 
       let backfilledCount = 0
+      let chunkCount = 0
+      const CHUNK_SIZE = 1000
 
       const idTree = this.trees.get('_id')
       if (!idTree) {
@@ -529,10 +527,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
               const keyToInsert = this.getTokenKey(k as number, token as string)
               const entry = { k: k as number, v: token }
               batchInsertData.push([keyToInsert, entry])
-              if (!indexEntryMap.has(btx)) {
-                indexEntryMap.set(btx, [])
-              }
-              indexEntryMap.get(btx)!.push({ k: keyToInsert as any, v: entry as any })
             }
             await btx.batchInsert(batchInsertData)
           }
@@ -541,36 +535,49 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
             if (indexVal === undefined) continue
             const entry = { k: k as number, v: indexVal }
             const batchInsertData: [number | string, DataplyTreeValue<Primitive>][] = [[k, entry as any]]
-            if (!indexEntryMap.has(btx)) {
-              indexEntryMap.set(btx, [])
-            }
-            indexEntryMap.get(btx)!.push(entry as any)
             await btx.batchInsert(batchInsertData)
           }
         }
         backfilledCount++
+        chunkCount++
+
+        // 성능 및 메모리 부하 방지를 위해 B+ Tree 트랜잭션을 일정 단위(CHUNK)로 커밋
+        // Engine의 외부 tx가 유지되므로 부분 커밋 시 에러가 나더라도 Database 전체 롤백은 안전함
+        if (chunkCount >= CHUNK_SIZE) {
+          try {
+            for (const btx of Object.values(indexTxMap)) {
+              await btx.commit()
+            }
+          } catch (err) {
+            for (const btx of Object.values(indexTxMap)) {
+              await btx.rollback()
+            }
+            throw err
+          }
+
+          // 커밋 후 다음 청크 데이터를 받을 새로운 B+ Tree 트랜잭션 재생성
+          for (const indexName of backfillTargets) {
+            const tree = this.trees.get(indexName)
+            if (tree && indexName !== '_id') {
+              indexTxMap[indexName] = await tree.createTransaction()
+            }
+          }
+          chunkCount = 0
+        }
       }
 
-      // 모든 트랜잭션 커밋
-      const btxs = Object.values(indexTxMap)
-      const success = []
-      try {
-        for (const btx of btxs) {
-          await btx.commit()
-          success.push(btx)
-        }
-      } catch (err) {
-        for (const btx of btxs) {
-          await btx.rollback()
-        }
-        for (const btx of success) {
-          const entries = indexEntryMap.get(btx)
-          if (!entries) continue
-          for (const entry of entries) {
-            await btx.delete(entry.k, entry)
+      // 남아있는 트랜잭션 커밋
+      if (chunkCount > 0) {
+        try {
+          for (const btx of Object.values(indexTxMap)) {
+            await btx.commit()
           }
+        } catch (err) {
+          for (const btx of Object.values(indexTxMap)) {
+            await btx.rollback()
+          }
+          throw err
         }
-        throw err
       }
 
       this.pendingBackfillFields = []
