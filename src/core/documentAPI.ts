@@ -989,7 +989,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     return pk + ':' + token
   }
 
-  private async applyCandidateByFTS<V>(
+  private async *applyCandidateByFTSStream<V>(
     candidate: {
       tree: BPTreeAsync<string, DataplyTreeValue<V>>,
       condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyQuery<T>>>>,
@@ -997,42 +997,39 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     matchedTokens: string[],
     filterValues?: Set<number>,
     order?: 'asc' | 'desc'
-  ): Promise<Set<number>> {
+  ): AsyncIterableIterator<number> {
     const keys = new Set<number>()
     for (let i = 0, len = matchedTokens.length; i < len; i++) {
       const token = matchedTokens[i]
-      const pairs = await candidate.tree.where(
+      for await (const pair of candidate.tree.whereStream(
         { primaryEqual: { v: token } } as any,
-        {
-          order,
+        { order }
+      )) {
+        const pk = (pair[1] as any).k as number
+        if (filterValues && !filterValues.has(pk)) continue
+        if (!keys.has(pk)) {
+          keys.add(pk)
+          yield pk
         }
-      )
-      for (const pair of pairs.values()) {
-        if (filterValues && !filterValues.has(pair.k)) continue
-        keys.add(pair.k)
       }
     }
-    return keys
   }
 
   /**
    * 특정 인덱스 후보를 조회하여 PK 집합을 필터링합니다.
    */
-  private async applyCandidate<V>(
+  private applyCandidateStream<V>(
     candidate: {
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyQuery<T>>>>,
     },
     filterValues?: Set<number>,
     order?: 'asc' | 'desc'
-  ): Promise<Set<number>> {
-    return await candidate.tree.keys(
+  ): AsyncIterableIterator<number> {
+    return candidate.tree.keysStream(
       candidate.condition as any,
-      {
-        filterValues,
-        order,
-      }
-    )
+      { filterValues, order }
+    ) as AsyncIterableIterator<number>
   }
 
   /**
@@ -1073,15 +1070,19 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         candidate.matchTokens &&
         candidate.matchTokens.length > 0
       ) {
-        keys = await this.applyCandidateByFTS(
-          candidate,
+        const stream = this.applyCandidateByFTSStream(
+          candidate as any,
           candidate.matchTokens,
           keys,
           currentOrder
         )
+        keys = new Set()
+        for await (const pk of stream) keys.add(pk)
       }
       else {
-        keys = await this.applyCandidate(candidate as any, keys, currentOrder)
+        const stream = this.applyCandidateStream(candidate as any, keys, currentOrder)
+        keys = new Set()
+        for await (const pk of stream) keys.add(pk)
       }
     }
 
@@ -1090,16 +1091,16 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   }
 
   /**
-   * 드라이버 인덱스만으로 PK를 가져옵니다. (교집합 없이)
+   * 드라이버 인덱스만으로 PK 스트림을 가져옵니다. (교집합 없이)
    * selectDocuments에서 사용하며, 나머지 조건(others)은 스트리밍 중 tree.verify()로 검증합니다.
-   * @returns 드라이버 키 배열, others 후보 목록, rollback 함수. 또는 null.
+   * @returns 드라이버 키 스트림, others 후보 목록, rollback 함수. 또는 null.
    */
   private async getDriverKeys(
     query: Partial<DocumentDataplyQuery<T>>,
     orderBy?: string,
     sortOrder: 'asc' | 'desc' = 'asc'
   ): Promise<{
-    keys: Float64Array,
+    keysStream: AsyncIterableIterator<number>,
     others: {
       tree: BPTreeAsync<string | number, DataplyTreeValue<Primitive>>,
       condition: any,
@@ -1130,14 +1131,14 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     const useIndexOrder = orderBy === undefined || driver.isIndexOrderSupported
     const currentOrder = useIndexOrder ? sortOrder : undefined
 
-    // 드라이버만으로 키를 가져옴
-    let keys: Set<number>
+    // 드라이버만으로 키 스트림을 가져옴
+    let keysStream: AsyncIterableIterator<number>
     if (
       driver.isFtsMatch &&
       driver.matchTokens &&
       driver.matchTokens.length > 0
     ) {
-      keys = await this.applyCandidateByFTS(
+      keysStream = this.applyCandidateByFTSStream(
         driver as any,
         driver.matchTokens,
         undefined,
@@ -1145,11 +1146,11 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       )
     }
     else {
-      keys = await this.applyCandidate(driver as any, undefined, currentOrder)
+      keysStream = this.applyCandidateStream(driver as any, undefined, currentOrder)
     }
 
     return {
-      keys: new Float64Array(Array.from(keys)),
+      keysStream,
       others: others as any,
       compositeVerifyConditions,
       isDriverOrderByField: useIndexOrder,
@@ -1600,11 +1601,11 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   }
 
   /**
-   * Prefetch 방식으로 키 배열을 청크 단위로 조회하여 문서를 순회합니다.
+   * Prefetch 방식으로 키 스트림을 청크 단위로 조회하여 문서를 순회합니다.
    * FTS 검증, 복합 인덱스 검증, others 후보에 대한 tree.verify() 검증을 통과한 문서만 yield 합니다.
    */
   private async *processChunkedKeysWithVerify(
-    keys: Float64Array,
+    keysStream: AsyncIterableIterator<number>,
     startIdx: number,
     initialChunkSize: number,
     ftsConditions: { field: string, matchTokens: string[] }[],
@@ -1622,30 +1623,15 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     // others 중 FTS가 아닌 일반 조건만 verify 대상으로 분리
     const verifyOthers = others.filter(o => !o.isFtsMatch)
 
-    let i = startIdx
-    const totalKeys = keys.length
     let currentChunkSize = initialChunkSize
+    let chunk: number[] = []
+    let dropped = 0
 
-    // 첫 번째 청크 prefetch
-    let nextChunkPromise: Promise<(string | null)[]> | null = null
-    if (i < totalKeys) {
-      const endIdx = Math.min(i + currentChunkSize, totalKeys)
-      nextChunkPromise = this.selectMany(keys.subarray(i, endIdx), false, tx)
-      i = endIdx
-    }
-
-    while (nextChunkPromise) {
-      const rawResults = await nextChunkPromise
-      nextChunkPromise = null
-
-      // 다음 청크 prefetch
-      if (i < totalKeys) {
-        const endIdx = Math.min(i + currentChunkSize, totalKeys)
-        nextChunkPromise = this.selectMany(keys.subarray(i, endIdx), false, tx)
-        i = endIdx
-      }
-
+    const processChunk = async (pks: number[]) => {
+      const docs: DataplyDocument<T>[] = []
+      const rawResults = await this.selectMany(new Float64Array(pks), false, tx)
       let chunkTotalSize = 0
+
       for (let j = 0, len = rawResults.length; j < len; j++) {
         const s = rawResults[j]
         if (!s) continue
@@ -1681,10 +1667,29 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           if (!passed) continue
         }
 
-        yield doc
+        docs.push(doc)
       }
 
       currentChunkSize = this.adjustChunkSize(currentChunkSize, chunkTotalSize)
+      return docs
+    }
+
+    for await (const pk of keysStream) {
+      if (dropped < startIdx) {
+        dropped++
+        continue
+      }
+      chunk.push(pk)
+      if (chunk.length >= currentChunkSize) {
+        const docs = await processChunk(chunk)
+        for (let j = 0; j < docs.length; j++) yield docs[j]
+        chunk = []
+      }
+    }
+
+    if (chunk.length > 0) {
+      const docs = await processChunk(chunk)
+      for (let j = 0; j < docs.length; j++) yield docs[j]
     }
   }
 
@@ -1755,11 +1760,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       // 드라이버 인덱스만으로 PK 목록 조회
       const driverResult = await self.getDriverKeys(query, orderByField, sortOrder)
       if (!driverResult) return
-      const { keys, others, compositeVerifyConditions, isDriverOrderByField, rollback } = driverResult
-      if (keys.length === 0) {
-        rollback()
-        return
-      }
+      const { keysStream, others, compositeVerifyConditions, isDriverOrderByField, rollback } = driverResult
 
       try {
         // ────────────────────────────────────────────────
@@ -1785,7 +1786,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           // topK가 무한대인 경우 모든 문서를 배열에 수집
           const results: DataplyDocument<T>[] = []
           for await (const doc of self.processChunkedKeysWithVerify(
-            keys,
+            keysStream,
             0,
             self.options.pageSize,
             ftsConditions,
@@ -1833,17 +1834,26 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         // 인덱스 순서를 그대로 활용하여 offset부터 limit개를 순차 반환합니다.
         // ────────────────────────────────────────────────
         else {
+          const hasFilters = ftsConditions.length > 0 || compositeVerifyConditions.length > 0 || others.length > 0
+          const startIdx = hasFilters ? 0 : offset
+
           let yieldedCount = 0
+          let skippedCount = hasFilters ? 0 : offset
+
           // offset부터 시작하여 limit개까지만 yield
           for await (const doc of self.processChunkedKeysWithVerify(
-            keys,
-            offset,
+            keysStream,
+            startIdx,
             self.options.pageSize,
             ftsConditions,
             compositeVerifyConditions,
             others,
             tx
           )) {
+            if (skippedCount < offset) {
+              skippedCount++
+              continue
+            }
             if (yieldedCount >= limit) break
             yield doc
             yieldedCount++

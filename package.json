@@ -42,7 +42,7 @@
     "dataply"
   ],
   "dependencies": {
-    "dataply": "^0.0.24-alpha.0"
+    "dataply": "^0.0.24-alpha.1"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
