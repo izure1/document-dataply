@@ -8,21 +8,21 @@ import type {
   Primitive,
   DataplyDocument,
   DocumentDataplyMetadata,
-  IndexConfig,
   DocumentDataplyQuery,
-  DocumentDataplyIndexedQuery,
-  FinalFlatten,
   DocumentDataplyCondition,
   DocumentDataplyQueryOptions,
-  FTSConfig
+  FTSConfig,
+  CreateIndexOption,
+  IndexMetaConfig,
+  FinalFlatten
 } from '../types'
 import {
+  type BPTreeCondition,
   DataplyAPI,
   Transaction,
   BPTreeAsync,
   BPTreeAsyncTransaction,
-  Ryoiki,
-  type BPTreeCondition
+  Ryoiki
 } from 'dataply'
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
@@ -30,7 +30,7 @@ import { catchPromise } from '../utils/catchPromise'
 import { BinaryHeap } from '../utils/heap'
 import { tokenize } from '../utils/tokenizer'
 
-export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T>> extends DataplyAPI {
+export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   declare runWithDefault
   declare streamWithDefault
 
@@ -39,8 +39,28 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
   readonly comparator = new DocumentValueComparator()
   private pendingBackfillFields: string[] = []
   private readonly lock: Ryoiki
+  private _initialized = false
 
   readonly indexedFields: Set<string>
+
+  /**
+   * Registered indices via createIndex() (before init)
+   * Key: index name, Value: index configuration
+   */
+  private readonly pendingCreateIndices: Map<string, CreateIndexOption<T>> = new Map()
+
+  /**
+   * Resolved index configurations after init.
+   * Key: index name, Value: index config (from metadata)
+   */
+  private registeredIndices: Map<string, IndexMetaConfig> = new Map()
+
+  /**
+   * Maps field name → index names that cover this field.
+   * Used for query resolution.
+   */
+  private fieldToIndices: Map<string, string[]> = new Map()
+
   private readonly operatorConverters: Partial<Record<
     keyof DocumentDataplyCondition<FinalFlatten<T>>,
     keyof BPTreeCondition<FinalFlatten<T>>
@@ -55,18 +75,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       like: 'like',
     }
 
-  constructor(file: string, options: DocumentDataplyOptions<T, IC>) {
+  constructor(file: string, options: DocumentDataplyOptions) {
     super(file, options)
     this.trees = new Map()
     this.lock = new Ryoiki()
 
-    // indices에 지정된 필드들을 저장 (_id는 항상 포함)
+    // _id는 항상 포함
     this.indexedFields = new Set(['_id'])
-    if (options?.indices) {
-      for (const field of Object.keys(options.indices)) {
-        this.indexedFields.add(field)
-      }
-    }
 
     this.hook.onceAfter('init', async (tx, isNewlyCreated) => {
       if (isNewlyCreated) {
@@ -76,44 +91,41 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         throw new Error('Document metadata verification failed')
       }
       const metadata = await this.getDocumentInnerMetadata(tx)
-      const optionsIndices = (options as DocumentDataplyOptions<T, IC>).indices ?? {}
-      const targetIndices: { [key: string]: boolean } = {
-        ...optionsIndices,
-        _id: true
+
+      // _id 인덱스는 항상 자동 등록
+      const targetIndices: Map<string, IndexMetaConfig> = new Map()
+      targetIndices.set('_id', { type: 'btree', fields: ['_id'] })
+
+      // pendingCreateIndices에서 인덱스 설정을 IndexMetaConfig로 변환
+      for (const [name, option] of this.pendingCreateIndices) {
+        const config = this.toIndexMetaConfig(option)
+        targetIndices.set(name, config)
       }
 
       const backfillTargets: string[] = []
       let isMetadataChanged = false
 
-      for (const field in targetIndices) {
-        const isBackfillEnabled = targetIndices[field]
-        const existingIndex = metadata.indices[field]
+      for (const [indexName, config] of targetIndices) {
+        const existingIndex = metadata.indices[indexName]
 
         // 새롭게 추가된 인덱스
         if (!existingIndex) {
-          // 사용자 요청: readHead에서 행 생성.
-          // PK를 -1로 설정하여 플레이스홀더로 사용.
-          metadata.indices[field] = [-1, isBackfillEnabled as boolean | FTSConfig]
+          metadata.indices[indexName] = [-1, config]
           isMetadataChanged = true
 
-          if (isBackfillEnabled && !isNewlyCreated) {
-            // DB가 새로 생성된 경우, 백필할 데이터가 없음.
-            backfillTargets.push(field)
+          if (!isNewlyCreated) {
+            backfillTargets.push(indexName)
           }
         }
-        // 기존 인덱스
+        // 기존 인덱스 - 설정 갱신
         else {
-          const [_pk, isMetaBackfillEnabled] = existingIndex
-          // 비활성 -> 활성
-          if (isBackfillEnabled && !isMetaBackfillEnabled) {
-            metadata.indices[field][1] = isBackfillEnabled as boolean | FTSConfig
+          const [_pk, existingConfig] = existingIndex
+          if (JSON.stringify(existingConfig) !== JSON.stringify(config)) {
+            metadata.indices[indexName] = [_pk, config]
             isMetadataChanged = true
-            backfillTargets.push(field)
-          }
-          // 활성 -> 비활성
-          else if (!isBackfillEnabled && isMetaBackfillEnabled) {
-            metadata.indices[field][1] = false
-            isMetadataChanged = true
+            if (!isNewlyCreated) {
+              backfillTargets.push(indexName)
+            }
           }
         }
       }
@@ -124,29 +136,206 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
       this.indices = metadata.indices
 
+      // registeredIndices 및 fieldToIndices 구축
+      this.registeredIndices = new Map()
+      this.fieldToIndices = new Map()
+
+      for (const [indexName, config] of targetIndices) {
+        this.registeredIndices.set(indexName, config)
+
+        // indexedFields와 fieldToIndices 갱신
+        const fields = this.getFieldsFromConfig(config)
+        for (const field of fields) {
+          this.indexedFields.add(field)
+          if (!this.fieldToIndices.has(field)) {
+            this.fieldToIndices.set(field, [])
+          }
+          this.fieldToIndices.get(field)!.push(indexName)
+        }
+      }
+
       // 트리 초기화
-      for (const field in this.indices) {
-        if (field in targetIndices) {
+      for (const indexName of targetIndices.keys()) {
+        if (metadata.indices[indexName]) {
           const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
             new DocumentSerializeStrategyAsync<Primitive>(
               (this.rowTableEngine as any).order,
               this,
               this.txContext,
-              field
+              indexName
             ),
             this.comparator as any
           )
           await tree.init()
-          this.trees.set(field, tree as any)
+          this.trees.set(indexName, tree as any)
         }
       }
 
-      // 초기화 중 실행하는 대신 백필 대기 필드 저장
-      // 초기화 후 backfillIndices()를 호출하여 백필 수행
+      // 백필 대기 필드 저장
       this.pendingBackfillFields = backfillTargets
-
+      this._initialized = true
       return tx
     })
+  }
+
+  /**
+   * Whether the document database has been initialized.
+   */
+  get isDocInitialized(): boolean {
+    return this._initialized
+  }
+
+  /**
+   * Register an index. If called before init(), queues it for processing during init.
+   * If called after init(), immediately creates the tree, updates metadata, and backfills.
+   */
+  async registerIndex(name: string, option: CreateIndexOption<T>): Promise<void> {
+    if (!this._initialized) {
+      // Pre-init: just queue it
+      this.pendingCreateIndices.set(name, option)
+      return
+    }
+    // Post-init: register immediately
+    await this.registerIndexRuntime(name, option)
+  }
+
+  /**
+   * Register an index at runtime (after init).
+   * Creates the tree, updates metadata, and backfills existing data.
+   */
+  private async registerIndexRuntime(name: string, option: CreateIndexOption<T>): Promise<void> {
+    const config = this.toIndexMetaConfig(option)
+
+    // 이미 동일한 이름의 인덱스가 존재하면 스킵
+    if (this.registeredIndices.has(name)) {
+      const existing = this.registeredIndices.get(name)!
+      if (JSON.stringify(existing) === JSON.stringify(config)) return
+    }
+
+    await this.runWithDefault(async (tx) => {
+      // 1. 메타데이터 갱신
+      const metadata = await this.getDocumentInnerMetadata(tx)
+      metadata.indices[name] = [-1, config]
+      await this.updateDocumentInnerMetadata(metadata, tx)
+      this.indices = metadata.indices
+
+      // 2. registeredIndices / fieldToIndices / indexedFields 갱신
+      this.registeredIndices.set(name, config)
+      const fields = this.getFieldsFromConfig(config)
+      for (const field of fields) {
+        this.indexedFields.add(field)
+        if (!this.fieldToIndices.has(field)) {
+          this.fieldToIndices.set(field, [])
+        }
+        this.fieldToIndices.get(field)!.push(name)
+      }
+
+      // 3. B+tree 생성
+      const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
+        new DocumentSerializeStrategyAsync<Primitive>(
+          (this.rowTableEngine as any).order,
+          this,
+          this.txContext,
+          name
+        ),
+        this.comparator as any
+      )
+      await tree.init()
+      this.trees.set(name, tree as any)
+
+      // 4. 기존 데이터 백필
+      if (metadata.lastId > 0) {
+        this.pendingBackfillFields = [name]
+        await this.backfillIndices(tx)
+      }
+    })
+  }
+
+  /**
+   * Convert CreateIndexOption to IndexMetaConfig for metadata storage.
+   */
+  private toIndexMetaConfig(option: CreateIndexOption<T>): IndexMetaConfig {
+    if (option.type === 'btree') {
+      return {
+        type: 'btree',
+        fields: option.fields as string[]
+      }
+    }
+    if (option.type === 'fts') {
+      if (option.tokenizer === 'ngram') {
+        return {
+          type: 'fts',
+          fields: option.fields as string,
+          tokenizer: 'ngram',
+          gramSize: option.ngram
+        }
+      }
+      return {
+        type: 'fts',
+        fields: option.fields as string,
+        tokenizer: 'whitespace'
+      }
+    }
+    throw new Error(`Unknown index type: ${(option as any).type}`)
+  }
+
+  /**
+   * Get all field names from an IndexMetaConfig.
+   */
+  private getFieldsFromConfig(config: IndexMetaConfig): string[] {
+    if (config.type === 'btree') {
+      return config.fields
+    }
+    if (config.type === 'fts') {
+      return [config.fields]
+    }
+    return []
+  }
+
+  /**
+   * Get the primary field of an index (the field used as tree key).
+   * For btree: first field in fields array.
+   * For fts: the single field.
+   */
+  private getPrimaryField(config: IndexMetaConfig): string {
+    if (config.type === 'btree') {
+      return config.fields[0]
+    }
+    return config.fields
+  }
+
+  /**
+   * 인덱스 config에 따라 B+tree에 저장할 v 값을 생성합니다.
+   * - 단일 필드 btree: Primitive (단일 값)
+   * - 복합 필드 btree: Primitive[] (필드 순서대로 배열)
+   * - fts: 별도 처리 (이 메서드 사용 안 함)
+   * @returns undefined면 해당 문서에 필수 필드가 없으므로 인덱싱 스킵
+   */
+  private getIndexValue(config: IndexMetaConfig, flatDoc: FlattenedDocumentJSON): Primitive | Primitive[] | undefined {
+    if (config.type !== 'btree') return undefined
+    if (config.fields.length === 1) {
+      const v = flatDoc[config.fields[0]]
+      return v === undefined ? undefined : v
+    }
+    // 복합 인덱스: 모든 필드 값을 배열로 구성
+    const values: Primitive[] = []
+    for (let i = 0, len = config.fields.length; i < len; i++) {
+      const v = flatDoc[config.fields[i]]
+      if (v === undefined) return undefined
+      values.push(v)
+    }
+    return values
+  }
+
+  /**
+   * Get FTSConfig from IndexMetaConfig (for tokenizer compatibility).
+   */
+  private getFtsConfig(config: IndexMetaConfig): FTSConfig | null {
+    if (config.type !== 'fts') return null
+    if (config.tokenizer === 'ngram') {
+      return { type: 'fts', tokenizer: 'ngram', gramSize: config.gramSize }
+    }
+    return { type: 'fts', tokenizer: 'whitespace' }
   }
 
   async getDocument(pk: number, tx?: Transaction): Promise<DataplyDocument<T>> {
@@ -180,10 +369,9 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
   }
 
   /**
-   * Backfill indices for fields that were added with `true` option after data was inserted.
-   * This method should be called after `init()` if you want to index existing documents
-   * for newly added index fields.
-   * 
+   * Backfill indices for newly created indices after data was inserted.
+   * This method should be called after `init()`.
+   *
    * @returns Number of documents that were backfilled
    */
   async backfillIndices(tx?: Transaction): Promise<number> {
@@ -201,20 +389,20 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         return 0
       }
 
-      // 대상 필드당 하나의 트랜잭션 생성
-      const fieldTxMap: Record<
+      // 대상 인덱스당 하나의 트랜잭션 생성
+      const indexTxMap: Record<
         string,
         BPTreeAsyncTransaction<string | number, DataplyTreeValue<Primitive>>
       > = {}
-      const fieldMap: Map<
+      const indexEntryMap: Map<
         BPTreeAsyncTransaction<string | number, DataplyTreeValue<Primitive>>,
         DataplyTreeValue<Primitive>[]
       > = new Map()
 
-      for (const field of backfillTargets) {
-        const tree = this.trees.get(field)
-        if (tree && field !== '_id') {
-          fieldTxMap[field] = await tree.createTransaction()
+      for (const indexName of backfillTargets) {
+        const tree = this.trees.get(indexName)
+        if (tree && indexName !== '_id') {
+          indexTxMap[indexName] = await tree.createTransaction()
         }
       }
 
@@ -234,41 +422,51 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         const doc = await this.getDocument(k as number, tx)
         if (!doc) continue
         const flatDoc = this.flattenDocument(doc)
-        for (const field of backfillTargets) {
-          if (
-            !(field in flatDoc) || // 문서에 해당 필드가 없음
-            !(field in fieldTxMap) // b+tree 트랜잭션에 해당 필드가 없음
-          ) {
-            continue
-          }
-          const v = flatDoc[field]
-          const btx = fieldTxMap[field]
-          const indexConfig = metadata.indices[field]?.[1]
-          const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts' && typeof v === 'string'
 
-          let tokens = [v as string]
-          if (isFts) {
-            tokens = tokenize(v, indexConfig)
-          }
+        for (const indexName of backfillTargets) {
+          if (!(indexName in indexTxMap)) continue
 
-          const batchInsertData: [number | string, DataplyTreeValue<Primitive>][] = []
-          for (let i = 0, len = tokens.length; i < len; i++) {
-            const token = tokens[i]
-            const keyToInsert = isFts ? this.getTokenKey(k as number, token as string) : k
-            const entry = { k: k as number, v: token }
-            batchInsertData.push([keyToInsert, entry])
-            if (!fieldMap.has(btx)) {
-              fieldMap.set(btx, [])
+          const config = this.registeredIndices.get(indexName)
+          if (!config) continue
+
+          const btx = indexTxMap[indexName]
+
+          if (config.type === 'fts') {
+            const primaryField = this.getPrimaryField(config)
+            const v = flatDoc[primaryField]
+            if (v === undefined || typeof v !== 'string') continue
+            const ftsConfig = this.getFtsConfig(config)
+            const tokens = ftsConfig ? tokenize(v, ftsConfig) : [v]
+            const batchInsertData: [number | string, DataplyTreeValue<Primitive>][] = []
+            for (let i = 0, len = tokens.length; i < len; i++) {
+              const token = tokens[i]
+              const keyToInsert = this.getTokenKey(k as number, token as string)
+              const entry = { k: k as number, v: token }
+              batchInsertData.push([keyToInsert, entry])
+              if (!indexEntryMap.has(btx)) {
+                indexEntryMap.set(btx, [])
+              }
+              indexEntryMap.get(btx)!.push({ k: keyToInsert as any, v: entry as any })
             }
-            fieldMap.get(btx)!.push({ k: keyToInsert as any, v: entry as any })
+            await btx.batchInsert(batchInsertData)
           }
-          await btx.batchInsert(batchInsertData)
+          else {
+            const indexVal = this.getIndexValue(config, flatDoc)
+            if (indexVal === undefined) continue
+            const entry = { k: k as number, v: indexVal }
+            const batchInsertData: [number | string, DataplyTreeValue<Primitive>][] = [[k, entry as any]]
+            if (!indexEntryMap.has(btx)) {
+              indexEntryMap.set(btx, [])
+            }
+            indexEntryMap.get(btx)!.push(entry as any)
+            await btx.batchInsert(batchInsertData)
+          }
         }
         backfilledCount++
       }
 
       // 모든 트랜잭션 커밋
-      const btxs = Object.values(fieldTxMap)
+      const btxs = Object.values(indexTxMap)
       const success = []
       try {
         for (const btx of btxs) {
@@ -280,7 +478,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           await btx.rollback()
         }
         for (const btx of success) {
-          const entries = fieldMap.get(btx)
+          const entries = indexEntryMap.get(btx)
           if (!entries) continue
           for (const entry of entries) {
             await btx.delete(entry.k, entry)
@@ -289,7 +487,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         throw err
       }
 
-      // 백필 후 대기 필드 초기화
       this.pendingBackfillFields = []
 
       return backfilledCount
@@ -315,7 +512,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     // 1. _id 인덱스 플레이스홀더(pk=-1)를 포함한 초기 메타데이터 생성
     // 실제 트리 헤드 행은 DocumentSerializeStrategyAsync.readHead()에서 지연 생성됨
     const metaObj = this.createDocumentInnerMetadata({
-      _id: [-1, true]
+      _id: [-1, { type: 'btree', fields: ['_id'] }]
     })
     // 2. 플레이스홀더로 1번 행에 저장
     await this.insertAsOverflow(JSON.stringify(metaObj), false, tx)
@@ -345,8 +542,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
   /**
    * returns flattened document
-   * @param document 
-   * @returns 
+   * @param document
+   * @returns
    */
   flattenDocument(document: T): FlattenedDocumentJSON {
     return this.flatten(document, '', {})
@@ -379,7 +576,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
    * @returns The verbose query object
    */
   verboseQuery<
-    U extends Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    U extends Partial<DocumentDataplyQuery<T>>,
     V extends DataplyTreeValue<U>
   >(query: Partial<DocumentDataplyQuery<U>>): Partial<DocumentDataplyQuery<V>> {
     const result = {}
@@ -419,13 +616,15 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
   }
 
   /**
-   * Get the selectivity candidate for the given query
-   * @param query The query conditions
+   * Choose the best index (driver) for the given query.
+   * Scores each index based on field coverage and condition type.
+   *
+   * @param query The verbose query conditions
    * @param orderByField Optional field name for orderBy optimization
    * @returns Driver and other candidates for query execution
    */
   async getSelectivityCandidate<
-    U extends Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    U extends Partial<DocumentDataplyQuery<T>>,
     V extends DataplyTreeValue<U>
   >(
     query: Partial<DocumentDataplyQuery<V>>,
@@ -435,11 +634,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
+      indexName: string,
       isFtsMatch: false
     } | {
       tree: BPTreeAsync<string, V>
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
+      indexName: string,
       isFtsMatch: true,
       matchTokens: string[]
     }),
@@ -447,51 +648,115 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       tree: BPTreeAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
+      indexName: string,
       isFtsMatch: false
     } | {
       tree: BPTreeAsync<string, V>
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
+      indexName: string,
       isFtsMatch: true,
       matchTokens: string[]
     })[],
+    // 복합 인덱스의 non-primary 필드 검증 조건
+    compositeVerifyConditions: {
+      field: string,
+      condition: any
+    }[],
     rollback: () => void
   } | null> {
-    const candidates: ({
+    const queryFields = new Set(Object.keys(query))
+    const candidates: {
       tree: BPTreeAsync<string | number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
-      isFtsMatch?: boolean,
-      matchTokens?: string[]
-    })[] = []
-    const metadata = await this.getDocumentInnerMetadata(this.txContext.get()!)
-    for (const field in query) {
-      const tree = this.trees.get(field)
+      indexName: string,
+      isFtsMatch: boolean,
+      matchTokens?: string[],
+      score: number,
+      compositeVerifyFields: string[]
+    }[] = []
+
+    for (const [indexName, config] of this.registeredIndices) {
+      const tree = this.trees.get(indexName)
       if (!tree) continue
-      const condition = query[field] as Partial<DocumentDataplyCondition<U>>
-      const treeTx = await tree.createTransaction()
-      const indexConfig = metadata.indices[field]?.[1]
 
-      let isFtsMatch = false
-      let matchTokens: string[] | undefined
+      if (config.type === 'btree') {
+        const primaryField = config.fields[0]
 
-      // Full Text Search
-      if (
-        typeof indexConfig === 'object' &&
-        indexConfig?.type === 'fts' &&
-        condition.match
-      ) {
-        isFtsMatch = true
-        matchTokens = tokenize(condition.match as string, indexConfig)
+        // 기본 필드가 쿼리에 없으면 이 인덱스는 사용할 수 없음
+        if (!queryFields.has(primaryField)) continue
+
+        const condition = query[primaryField] as Partial<DocumentDataplyCondition<U>>
+        const treeTx = await tree.createTransaction()
+
+        // 점수 계산
+        let score = 0
+        const coveredFields = config.fields.filter(f => queryFields.has(f))
+        score += coveredFields.length
+
+        // 조건 타입에 따른 점수 가산
+        if (condition) {
+          if (typeof condition !== 'object' || condition === null) {
+            score += 100 // direct value = equal (highest)
+          }
+          else if ('primaryEqual' in condition || 'equal' in condition) {
+            score += 100
+          }
+          else if ('primaryGte' in condition || 'primaryLte' in condition ||
+            'primaryGt' in condition || 'primaryLt' in condition ||
+            'gte' in condition || 'lte' in condition ||
+            'gt' in condition || 'lt' in condition) {
+            score += 50
+          }
+          else if ('primaryOr' in condition || 'or' in condition) {
+            score += 20
+          }
+          else {
+            score += 10
+          }
+        }
+
+        // orderBy 필드가 이 인덱스의 primary field와 일치하면 보너스
+        if (orderByField && primaryField === orderByField) {
+          score += 200
+        }
+
+        // 복합 인덱스에서 primary 필드 외에 쿼리에 포함된 필드들
+        const compositeVerifyFields = coveredFields.filter(f => f !== primaryField)
+
+        candidates.push({
+          tree: treeTx as unknown as BPTreeAsync<string | number, V>,
+          condition,
+          field: primaryField,
+          indexName,
+          isFtsMatch: false,
+          score,
+          compositeVerifyFields
+        })
       }
+      else if (config.type === 'fts') {
+        const field = config.fields
+        if (!queryFields.has(field)) continue
 
-      candidates.push({
-        tree: treeTx as unknown as BPTreeAsync<string | number, V>,
-        condition,
-        field,
-        isFtsMatch,
-        matchTokens
-      })
+        const condition = query[field] as Partial<DocumentDataplyCondition<U>>
+        if (!condition || typeof condition !== 'object' || !('match' in condition)) continue
+
+        const treeTx = await tree.createTransaction()
+        const ftsConfig = this.getFtsConfig(config)
+        const matchTokens = ftsConfig ? tokenize((condition as any).match as string, ftsConfig) : []
+
+        candidates.push({
+          tree: treeTx as unknown as BPTreeAsync<string | number, V>,
+          condition,
+          field,
+          indexName,
+          isFtsMatch: true,
+          matchTokens,
+          score: 90,
+          compositeVerifyFields: []
+        })
+      }
     }
 
     const rollback = () => {
@@ -506,48 +771,24 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       return null
     }
 
-    // orderBy 필드가 쿼리 조건에 포함된 경우만 해당 인덱스를 driver로 우선 선택
-    if (orderByField) {
-      const orderByCandidate = candidates.find(c => c.field === orderByField)
-      if (orderByCandidate) {
-        return {
-          driver: orderByCandidate as any,
-          others: candidates.filter(c => c.field !== orderByField) as any,
-          rollback,
-        }
-      }
-      // orderBy가 조건에 없으면 ChooseDriver로 선택도 기반 선택
-    }
+    // 점수 기준 내림차순 정렬
+    candidates.sort((a, b) => b.score - a.score)
 
-    // FTS match 후보 우선 처리 (match의 실질 score: 90)
-    // equal/primaryEqual(100)이 다른 후보에 있을 때만 ChooseDriver에 위임
-    const ftsCandidate = candidates.find(
-      c => c.isFtsMatch && c.matchTokens && c.matchTokens.length > 0
-    )
-    if (ftsCandidate) {
-      const hasHigherPriority = candidates.some(c => {
-        if (c === ftsCandidate) return false
-        const cond = c.condition
-        return 'equal' in cond || 'primaryEqual' in cond
-      })
-      if (!hasHigherPriority) {
-        return {
-          driver: ftsCandidate as any,
-          others: candidates.filter(c => c !== ftsCandidate) as any,
-          rollback,
-        }
+    const driver = candidates[0]
+    const others = candidates.slice(1)
+
+    // 드라이버의 복합 인덱스 non-primary 필드 조건
+    const compositeVerifyConditions: { field: string, condition: any }[] = []
+    for (const field of driver.compositeVerifyFields) {
+      if (query[field]) {
+        compositeVerifyConditions.push({ field, condition: query[field] })
       }
     }
 
-    // 기존 로직: ChooseDriver 사용 (선택도 기반)
-    let res = BPTreeAsync.ChooseDriver(candidates)
-    if (!res && candidates.length > 0) {
-      res = candidates[0]
-    }
-    if (!res) return null
     return {
-      driver: res as any,
-      others: candidates.filter(c => c.tree !== res!.tree) as any,
+      driver: driver as any,
+      others: others as any,
+      compositeVerifyConditions,
       rollback,
     }
   }
@@ -574,7 +815,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
   private async applyCandidateByFTS<V>(
     candidate: {
       tree: BPTreeAsync<string, DataplyTreeValue<V>>,
-      condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyIndexedQuery<T, IC>>>>,
+      condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyQuery<T>>>>,
     },
     matchedTokens: string[],
     filterValues?: Set<number>,
@@ -603,7 +844,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
   private async applyCandidate<V>(
     candidate: {
       tree: BPTreeAsync<number, V>,
-      condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyIndexedQuery<T, IC>>>>,
+      condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyQuery<T>>>>,
     },
     filterValues?: Set<number>,
     order?: 'asc' | 'desc'
@@ -622,8 +863,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
    * 쿼리 최적화를 통합하기 위한 내부 공통 메서드입니다.
    */
   async getKeys(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
-    orderBy?: keyof IC | '_id',
+    query: Partial<DocumentDataplyQuery<T>>,
+    orderBy?: string,
     sortOrder: 'asc' | 'desc' = 'asc'
   ): Promise<Float64Array> {
     // 1. 쿼리 정규화 및 최적화 후보 선택
@@ -677,8 +918,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
    * @returns 드라이버 키 배열, others 후보 목록, rollback 함수. 또는 null.
    */
   private async getDriverKeys(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
-    orderBy?: keyof IC | '_id',
+    query: Partial<DocumentDataplyQuery<T>>,
+    orderBy?: string,
     sortOrder: 'asc' | 'desc' = 'asc'
   ): Promise<{
     keys: Float64Array,
@@ -686,8 +927,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
       tree: BPTreeAsync<string | number, DataplyTreeValue<Primitive>>,
       condition: any,
       field: string,
+      indexName: string,
       isFtsMatch: boolean,
       matchTokens?: string[]
+    }[],
+    compositeVerifyConditions: {
+      field: string,
+      condition: any
     }[],
     isDriverOrderByField: boolean,
     rollback: () => void,
@@ -701,7 +947,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
     if (!selectivity) return null
 
-    const { driver, others, rollback } = selectivity
+    const { driver, others, compositeVerifyConditions, rollback } = selectivity
 
     // 드라이버의 정렬 순서 결정
     const useIndexOrder = orderBy === undefined || driver.field === orderBy
@@ -728,6 +974,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     return {
       keys: new Float64Array(Array.from(keys)),
       others: others as any,
+      compositeVerifyConditions,
       isDriverOrderByField: useIndexOrder,
       rollback,
     }
@@ -761,29 +1008,31 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
   async insertSingleDocument(document: T, tx?: Transaction): Promise<number> {
     return this.writeLock(() => this.runWithDefault(async (tx) => {
       const { pk: dpk, document: dataplyDocument } = await this.insertDocumentInternal(document, tx)
-      const metadata = await this.getDocumentInnerMetadata(tx)
       const flattenDocument = this.flattenDocument(dataplyDocument)
 
-      // Indexing
-      for (const field in flattenDocument) {
-        const tree = this.trees.get(field)
+      // 등록된 인덱스별로 인덱싱
+      for (const [indexName, config] of this.registeredIndices) {
+        const tree = this.trees.get(indexName)
         if (!tree) continue
-        const v = flattenDocument[field]
-        const indexConfig = metadata.indices[field]?.[1]
 
-        let tokens: string[] | Primitive[] = [v]
-        const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts' && typeof v === 'string'
-        if (isFts) {
-          tokens = tokenize(v, indexConfig)
-        }
-
-        for (let i = 0, len = tokens.length; i < len; i++) {
-          const token = tokens[i]
-          const keyToInsert = isFts ? this.getTokenKey(dpk, token as string) : dpk
-          const [error] = await catchPromise(tree.insert(keyToInsert, { k: dpk, v: token }))
-          if (error) {
-            throw error
+        if (config.type === 'fts') {
+          const primaryField = this.getPrimaryField(config)
+          const v = flattenDocument[primaryField]
+          if (v === undefined || typeof v !== 'string') continue
+          const ftsConfig = this.getFtsConfig(config)
+          const tokens = ftsConfig ? tokenize(v, ftsConfig) : [v]
+          for (let i = 0, len = tokens.length; i < len; i++) {
+            const token = tokens[i]
+            const keyToInsert = this.getTokenKey(dpk, token as string)
+            const [error] = await catchPromise(tree.insert(keyToInsert, { k: dpk, v: token }))
+            if (error) throw error
           }
+        }
+        else {
+          const indexVal = this.getIndexValue(config, flattenDocument)
+          if (indexVal === undefined) continue
+          const [error] = await catchPromise(tree.insert(dpk, { k: dpk, v: indexVal } as any))
+          if (error) throw error
         }
       }
       return dataplyDocument._id
@@ -832,27 +1081,37 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         flattenedData[i].pk = pks[i]
       }
 
-      for (const [field, tree] of this.trees) {
+      // 5. 등록된 인덱스별로 인덱싱
+      for (const [indexName, config] of this.registeredIndices) {
+        const tree = this.trees.get(indexName)
+        if (!tree) continue
+
         const treeTx = await tree.createTransaction()
-        const indexConfig = metadata.indices[field]?.[1]
-
         const batchInsertData: [string | number, DataplyTreeValue<Primitive>][] = []
-        for (let i = 0, len = flattenedData.length; i < len; i++) {
-          const item = flattenedData[i]
-          const v = item.data[field]
-          if (v === undefined) continue
 
-          const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts' && typeof v === 'string'
-          let tokens: string[] | Primitive[] = [v]
-          if (isFts) {
-            tokens = tokenize(v, indexConfig)
-          }
-          for (let j = 0, len = tokens.length; j < len; j++) {
-            const token = tokens[j]
-            const keyToInsert = isFts ? this.getTokenKey(item.pk, token as string) : item.pk
-            batchInsertData.push([keyToInsert, { k: item.pk, v: token }])
+        if (config.type === 'fts') {
+          const primaryField = this.getPrimaryField(config)
+          const ftsConfig = this.getFtsConfig(config)
+          for (let i = 0, len = flattenedData.length; i < len; i++) {
+            const item = flattenedData[i]
+            const v = item.data[primaryField]
+            if (v === undefined || typeof v !== 'string') continue
+            const tokens = ftsConfig ? tokenize(v, ftsConfig) : [v]
+            for (let j = 0, tLen = tokens.length; j < tLen; j++) {
+              const token = tokens[j]
+              batchInsertData.push([this.getTokenKey(item.pk, token as string), { k: item.pk, v: token }])
+            }
           }
         }
+        else {
+          for (let i = 0, len = flattenedData.length; i < len; i++) {
+            const item = flattenedData[i]
+            const indexVal = this.getIndexValue(config, item.data)
+            if (indexVal === undefined) continue
+            batchInsertData.push([item.pk, { k: item.pk, v: indexVal } as any])
+          }
+        }
+
         const [error] = await catchPromise(treeTx.batchInsert(batchInsertData))
         if (error) {
           throw error
@@ -874,78 +1133,81 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
    * @returns The number of updated documents
    */
   private async updateInternal(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     computeUpdatedDoc: (doc: DataplyDocument<T>) => DataplyDocument<T>,
     tx: Transaction
   ): Promise<number> {
-    // 1. 대상 PK 목록 확보 (인덱스 전용 검색 최적화)
     const pks = await this.getKeys(query)
     let updatedCount = 0
 
     const treeTxs = new Map<string, BPTreeAsyncTransaction<string | number, DataplyTreeValue<any>>>()
-    for (const [field, tree] of this.trees) {
-      treeTxs.set(field, await tree.createTransaction())
+    for (const [indexName, tree] of this.trees) {
+      treeTxs.set(indexName, await tree.createTransaction())
     }
     treeTxs.delete('_id')
 
     for (let i = 0, len = pks.length; i < len; i++) {
       const pk = pks[i]
-      // 1.1 문서 직접 로드 (PK 알고 있으므로 인덱스 재검색 불필요)
       const doc = await this.getDocument(pk, tx)
       if (!doc) continue
 
-      // 1.2 새 문서 계산
       const updatedDoc = computeUpdatedDoc(doc)
       const oldFlatDoc = this.flattenDocument(doc)
       const newFlatDoc = this.flattenDocument(updatedDoc)
 
-      // 1.3 변경된 인덱스 필드 동기화
-      const metadata = await this.getDocumentInnerMetadata(tx)
-      for (const [field, treeTx] of treeTxs) {
-        const oldV = oldFlatDoc[field]
-        const newV = newFlatDoc[field]
+      // 변경된 인덱스 필드 동기화
+      for (const [indexName, treeTx] of treeTxs) {
+        const config = this.registeredIndices.get(indexName)
+        if (!config) continue
 
-        if (oldV === newV) continue
+        if (config.type === 'fts') {
+          const primaryField = this.getPrimaryField(config)
+          const oldV = oldFlatDoc[primaryField]
+          const newV = newFlatDoc[primaryField]
+          if (oldV === newV) continue
+          const ftsConfig = this.getFtsConfig(config)
 
-        const indexConfig = metadata.indices[field]?.[1]
-        const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts'
-
-        // 기존 값 토큰 삭제
-        if (field in oldFlatDoc) {
-          let oldTokens: string[] | Primitive[] = [oldV]
-          if (isFts && typeof oldV === 'string') {
-            oldTokens = tokenize(oldV, indexConfig)
+          // 기존 FTS 토큰 삭제
+          if (typeof oldV === 'string') {
+            const oldTokens = ftsConfig ? tokenize(oldV, ftsConfig) : [oldV]
+            for (let j = 0, jLen = oldTokens.length; j < jLen; j++) {
+              await treeTx.delete(this.getTokenKey(pk, oldTokens[j] as string), { k: pk, v: oldTokens[j] })
+            }
           }
-          for (let j = 0, len = oldTokens.length; j < len; j++) {
-            const oldToken = oldTokens[j]
-            const keyToDelete = isFts ? this.getTokenKey(pk, oldToken as string) : pk
-            await treeTx.delete(keyToDelete, { k: pk, v: oldToken })
+          // 새 FTS 토큰 삽입
+          if (typeof newV === 'string') {
+            const newTokens = ftsConfig ? tokenize(newV, ftsConfig) : [newV]
+            const batchInsertData: [string | number, DataplyTreeValue<Primitive>][] = []
+            for (let j = 0, jLen = newTokens.length; j < jLen; j++) {
+              batchInsertData.push([this.getTokenKey(pk, newTokens[j] as string), { k: pk, v: newTokens[j] }])
+            }
+            await treeTx.batchInsert(batchInsertData)
           }
         }
+        else {
+          const oldIndexVal = this.getIndexValue(config, oldFlatDoc)
+          const newIndexVal = this.getIndexValue(config, newFlatDoc)
 
-        // 새 값 토큰 삽입
-        if (field in newFlatDoc) {
-          let newTokens: string[] | Primitive[] = [newV]
-          if (isFts && typeof newV === 'string') {
-            newTokens = tokenize(newV, indexConfig)
-          }
+          // 값이 동일하면 스킵 (배열 비교를 위해 JSON.stringify 사용)
+          if (JSON.stringify(oldIndexVal) === JSON.stringify(newIndexVal)) continue
 
-          const batchInsertData: [string | number, DataplyTreeValue<Primitive>][] = []
-          for (let j = 0, len = newTokens.length; j < len; j++) {
-            const newToken = newTokens[j]
-            const keyToInsert = isFts ? this.getTokenKey(pk, newToken as string) : pk
-            batchInsertData.push([keyToInsert, { k: pk, v: newToken }])
+          // 기존 값 삭제
+          if (oldIndexVal !== undefined) {
+            await treeTx.delete(pk, { k: pk, v: oldIndexVal } as any)
           }
-          await treeTx.batchInsert(batchInsertData)
+          // 새 값 삽입
+          if (newIndexVal !== undefined) {
+            await treeTx.batchInsert([[pk, { k: pk, v: newIndexVal } as any]])
+          }
         }
       }
 
-      // 1.4 실제 레코드 업데이트
+      // 실제 레코드 업데이트
       await this.update(pk, JSON.stringify(updatedDoc), tx)
       updatedCount++
     }
 
-    for (const [field, treeTx] of treeTxs) {
+    for (const [indexName, treeTx] of treeTxs) {
       const result = await treeTx.commit()
       if (!result.success) {
         for (const rollbackTx of treeTxs.values()) {
@@ -960,13 +1222,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
   /**
    * Fully update documents from the database that match the query
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param newRecord Complete document to replace with, or function that receives current document and returns new document
    * @param tx The transaction to use
    * @returns The number of updated documents
    */
   async fullUpdate(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     newRecord: T | ((document: DataplyDocument<T>) => T),
     tx?: Transaction
   ): Promise<number> {
@@ -983,13 +1245,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
   /**
    * Partially update documents from the database that match the query
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param newRecord Partial document to merge, or function that receives current document and returns partial update
    * @param tx The transaction to use
    * @returns The number of updated documents
    */
   async partialUpdate(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     newRecord: Partial<DataplyDocument<T>> | ((document: DataplyDocument<T>) => Partial<DataplyDocument<T>>),
     tx?: Transaction
   ): Promise<number> {
@@ -1009,48 +1271,47 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
   /**
    * Delete documents from the database that match the query
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param tx The transaction to use
    * @returns The number of deleted documents
    */
   async deleteDocuments(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     tx?: Transaction
   ): Promise<number> {
     return this.writeLock(() => this.runWithDefault(async (tx) => {
-      // 1. 삭제할 대상 PK 목록 확보
       const pks = await this.getKeys(query)
       let deletedCount = 0
 
       for (let i = 0, len = pks.length; i < len; i++) {
         const pk = pks[i]
-        // 1.1 문서 정보 확보 (인덱스 삭제를 위함)
         const doc = await this.getDocument(pk, tx)
         if (!doc) continue
 
         const flatDoc = this.flattenDocument(doc)
 
-        const metadata = await this.getDocumentInnerMetadata(tx)
+        // 모든 인덱스 트리에서 삭제
+        for (const [indexName, tree] of this.trees) {
+          const config = this.registeredIndices.get(indexName)
+          if (!config) continue
 
-        // 1.2 모든 인덱스 트리에서 삭제
-        for (const [field, tree] of this.trees) {
-          const v = flatDoc[field]
-          if (v === undefined) continue
-
-          const indexConfig = metadata.indices[field]?.[1]
-          const isFts = typeof indexConfig === 'object' && indexConfig?.type === 'fts' && typeof v === 'string'
-          let tokens: string[] | Primitive[] = [v]
-          if (isFts) {
-            tokens = tokenize(v, indexConfig)
-          }
-          for (let j = 0, len = tokens.length; j < len; j++) {
-            const token = tokens[j]
-            const keyToDelete = isFts ? this.getTokenKey(pk, token as string) : pk
-            await tree.delete(keyToDelete, { k: pk, v: token })
+          if (config.type === 'fts') {
+            const primaryField = this.getPrimaryField(config)
+            const v = flatDoc[primaryField]
+            if (v === undefined || typeof v !== 'string') continue
+            const ftsConfig = this.getFtsConfig(config)
+            const tokens = ftsConfig ? tokenize(v, ftsConfig) : [v]
+            for (let j = 0, jLen = tokens.length; j < jLen; j++) {
+              await tree.delete(this.getTokenKey(pk, tokens[j] as string), { k: pk, v: tokens[j] })
+            }
+          } else {
+            const indexVal = this.getIndexValue(config, flatDoc)
+            if (indexVal === undefined) continue
+            await tree.delete(pk, { k: pk, v: indexVal } as any)
           }
         }
 
-        // 1.3 실제 레코드 삭제
+        // 실제 레코드 삭제
         await super.delete(pk, true, tx)
         deletedCount++
       }
@@ -1061,12 +1322,12 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
   /**
    * Count documents from the database that match the query
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param tx The transaction to use
    * @returns The number of documents that match the query
    */
   async countDocuments(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     tx?: Transaction
   ): Promise<number> {
     return this.readLock(() => this.runWithDefault(async (tx) => {
@@ -1096,6 +1357,61 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
   }
 
   /**
+   * 복합 인덱스의 non-primary 필드에 대해 문서가 유효한지 검증합니다.
+   */
+  private verifyCompositeConditions(
+    doc: DataplyDocument<T>,
+    conditions: { field: string, condition: any }[]
+  ): boolean {
+    if (conditions.length === 0) return true
+    const flatDoc = this.flattenDocument(doc)
+    for (let i = 0, len = conditions.length; i < len; i++) {
+      const { field, condition } = conditions[i]
+      const docValue = flatDoc[field]
+      if (docValue === undefined) return false
+
+      // verbose 조건 형태를 다시 역변환하여 비교
+      const treeValue: DataplyTreeValue<Primitive> = { k: doc._id, v: docValue }
+      // tree.verify() 대신 직접 비교
+      if (!this.verifyValue(docValue, condition)) return false
+    }
+    return true
+  }
+
+  /**
+   * 단일 값에 대해 verbose 조건을 검증합니다.
+   */
+  private verifyValue(value: Primitive, condition: any): boolean {
+    if (typeof condition !== 'object' || condition === null) {
+      // 직접 값 비교 (equal)
+      return value === condition
+    }
+    // verbose 형태의 조건 검증
+    if ('primaryEqual' in condition) {
+      return value === condition.primaryEqual?.v
+    }
+    if ('primaryNotEqual' in condition) {
+      return value !== condition.primaryNotEqual?.v
+    }
+    if ('primaryLt' in condition) {
+      return value !== null && condition.primaryLt?.v !== undefined && value < condition.primaryLt.v
+    }
+    if ('primaryLte' in condition) {
+      return value !== null && condition.primaryLte?.v !== undefined && value <= condition.primaryLte.v
+    }
+    if ('primaryGt' in condition) {
+      return value !== null && condition.primaryGt?.v !== undefined && value > condition.primaryGt.v
+    }
+    if ('primaryGte' in condition) {
+      return value !== null && condition.primaryGte?.v !== undefined && value >= condition.primaryGte.v
+    }
+    if ('primaryOr' in condition && Array.isArray(condition.primaryOr)) {
+      return condition.primaryOr.some((c: any) => value === c?.v)
+    }
+    return true
+  }
+
+  /**
    * 메모리 기반으로 청크 크기를 동적 조절합니다.
    */
   private adjustChunkSize(currentChunkSize: number, chunkTotalSize: number): number {
@@ -1108,18 +1424,19 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
   /**
    * Prefetch 방식으로 키 배열을 청크 단위로 조회하여 문서를 순회합니다.
-   * FTS 검증 및 others 후보에 대한 tree.verify() 검증을 통과한 문서만 yield 합니다.
-   * 교집합 대신 스트리밍 중 검증하여 첫 결과 반환 시간을 단축합니다.
+   * FTS 검증, 복합 인덱스 검증, others 후보에 대한 tree.verify() 검증을 통과한 문서만 yield 합니다.
    */
   private async *processChunkedKeysWithVerify(
     keys: Float64Array,
     startIdx: number,
     initialChunkSize: number,
     ftsConditions: { field: string, matchTokens: string[] }[],
+    compositeVerifyConditions: { field: string, condition: any }[],
     others: {
       tree: BPTreeAsync<string | number, DataplyTreeValue<Primitive>>,
       condition: any,
       field: string,
+      indexName: string,
       isFtsMatch: boolean,
       matchTokens?: string[]
     }[],
@@ -1161,6 +1478,12 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         // FTS 검증
         if (ftsConditions.length > 0 && !this.verifyFts(doc, ftsConditions)) continue
 
+        // 복합 인덱스 non-primary 필드 검증
+        if (
+          compositeVerifyConditions.length > 0 &&
+          this.verifyCompositeConditions(doc, compositeVerifyConditions) === false
+        ) continue
+
         // others 조건 검증: 각 필드의 값을 tree.verify()로 확인
         if (verifyOthers.length > 0) {
           const flatDoc = this.flattenDocument(doc)
@@ -1172,7 +1495,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
               passed = false
               break
             }
-            // tree.verify()에 전달할 값 구성: { k: pk, v: fieldValue }
             const treeValue: DataplyTreeValue<Primitive> = { k: doc._id, v: fieldValue }
             if (!other.tree.verify(treeValue, other.condition)) {
               passed = false
@@ -1191,15 +1513,15 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
 
   /**
    * Select documents from the database
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param options The options to use
    * @param tx The transaction to use
    * @returns The documents that match the query
    * @throws Error if query or orderBy contains non-indexed fields
    */
   selectDocuments(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
-    options: DocumentDataplyQueryOptions<T, IC> = {},
+    query: Partial<DocumentDataplyQuery<T>>,
+    options: DocumentDataplyQueryOptions = {},
     tx?: Transaction
   ): {
     stream: AsyncIterableIterator<DataplyDocument<T>>
@@ -1229,7 +1551,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
     const self = this
     const stream = this.streamWithDefault(async function* (tx) {
       // FTS(전문 검색) 조건 수집: match 연산자가 있는 필드의 토큰을 추출
-      const metadata = await self.getDocumentInnerMetadata(tx)
       const ftsConditions: { field: string, matchTokens: string[] }[] = []
       for (const field in query) {
         const q = query[field] as any
@@ -1239,17 +1560,25 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
           'match' in q &&
           typeof q.match === 'string'
         ) {
-          const indexConfig = metadata.indices[field]?.[1]
-          if (typeof indexConfig === 'object' && indexConfig?.type === 'fts') {
-            ftsConditions.push({ field, matchTokens: tokenize(q.match, indexConfig) })
+          // 해당 필드를 커버하는 FTS 인덱스 찾기
+          const indexNames = self.fieldToIndices.get(field) || []
+          for (const indexName of indexNames) {
+            const config = self.registeredIndices.get(indexName)
+            if (config && config.type === 'fts') {
+              const ftsConfig = self.getFtsConfig(config)
+              if (ftsConfig) {
+                ftsConditions.push({ field, matchTokens: tokenize(q.match, ftsConfig) })
+              }
+              break
+            }
           }
         }
       }
 
-      // 드라이버 인덱스만으로 PK 목록 조회 (교집합 없이)
+      // 드라이버 인덱스만으로 PK 목록 조회
       const driverResult = await self.getDriverKeys(query, orderByField, sortOrder)
       if (!driverResult) return
-      const { keys, others, isDriverOrderByField, rollback } = driverResult
+      const { keys, others, compositeVerifyConditions, isDriverOrderByField, rollback } = driverResult
       if (keys.length === 0) {
         rollback()
         return
@@ -1283,6 +1612,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
             0,
             self.options.pageSize,
             ftsConditions,
+            compositeVerifyConditions,
             others,
             tx
           )) {
@@ -1333,6 +1663,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
             offset,
             self.options.pageSize,
             ftsConditions,
+            compositeVerifyConditions,
             others,
             tx
           )) {
@@ -1343,7 +1674,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON, IC extends IndexConfig<T
         }
       }
       finally {
-        // others 후보 트랜잭션 정리
         rollback()
       }
     }, tx)

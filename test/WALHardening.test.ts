@@ -17,8 +17,8 @@ describe('DocumentDataply WAL Hardening Test', () => {
   test('should ignore partially written WAL entries (checksum failure)', async () => {
     const db = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      indices: { name: true }
     }).Open(dbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
     // Use a second transaction to prevent WAL from being cleared after Tx1 commits
@@ -38,8 +38,8 @@ describe('DocumentDataply WAL Hardening Test', () => {
 
     const db2 = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      indices: { name: true }
     }).Open(dbPath)
+    db2.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db2.init()
 
     const docs = await db2.select({ name: 'Data1' }).drain()
@@ -53,8 +53,8 @@ describe('DocumentDataply WAL Hardening Test', () => {
   test('should handle garbage data at the end of WAL', async () => {
     const db = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      indices: { name: true }
     }).Open(dbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
     // Use a second transaction to prevent WAL from being cleared after Tx1 commits
@@ -72,8 +72,8 @@ describe('DocumentDataply WAL Hardening Test', () => {
 
     const db2 = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      indices: { name: true }
     }).Open(dbPath)
+    db2.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db2.init()
 
     const docs = await db2.select({ name: 'GarbageTest' }).drain()

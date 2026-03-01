@@ -10,11 +10,7 @@ type DataDoc = {
 
 describe('DocumentDataply Query Operators', () => {
   const dbPath = path.join(__dirname, 'test_query.db')
-  let db: DocumentDataply<DataDoc, {
-    score: true
-    category: true
-    active: true
-  }>
+  let db: DocumentDataply<DataDoc>
 
   // Helper to initialize data for each test
   async function initData() {
@@ -29,13 +25,10 @@ describe('DocumentDataply Query Operators', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<DataDoc>().Options({
-      indices: {
-        score: true,
-        category: true,
-        active: true,
-      }
-    }).Open(dbPath)
+    db = DocumentDataply.Define<DataDoc>().Options({}).Open(dbPath)
+    await db.createIndex('idx_score', { type: 'btree', fields: ['score'] })
+    await db.createIndex('idx_category', { type: 'btree', fields: ['category'] })
+    await db.createIndex('idx_active', { type: 'btree', fields: ['active'] })
     await db.init()
     await initData()
   })
@@ -103,7 +96,7 @@ describe('DocumentDataply Query Operators', () => {
     const results = await db.select({
       category: { or: ['A', 'C'] }
     }).drain()
-    // category A(2ê°œ) + C(1ê°œ) = 3ê°œ
+    // category A(2ê°? + C(1ê°? = 3ê°?
     expect(results.length).toBe(3)
     results.forEach(r => expect(['A', 'C']).toContain(r.category))
   })

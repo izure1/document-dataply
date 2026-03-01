@@ -3,11 +3,29 @@ import type {
   DataplyOptions
 } from 'dataply'
 
-export type Primitive = string | number | boolean | null;
-export type JSONValue = Primitive | JSONValue[] | { [key: string]: JSONValue };
+export type Primitive = string | number | boolean | null
+export type JSONValue = Primitive | JSONValue[] | { [key: string]: JSONValue }
 
-export type DocumentJSON = { [key: string]: JSONValue };
-export type FlattenedDocumentJSON = { [key: string]: Primitive };
+export type DocumentJSON = { [key: string]: JSONValue }
+export type FlattenedDocumentJSON = { [key: string]: Primitive }
+
+/**
+ * Index metadata config stored in DB metadata.
+ * Used internally to persist index configuration.
+ */
+export type IndexMetaConfig = {
+  type: 'btree'
+  fields: string[]
+} | {
+  type: 'fts'
+  fields: string
+  tokenizer: 'whitespace'
+} | {
+  type: 'fts'
+  fields: string
+  tokenizer: 'ngram'
+  gramSize: number
+}
 
 export interface DocumentDataplyInnerMetadata {
   magicString: string
@@ -18,14 +36,7 @@ export interface DocumentDataplyInnerMetadata {
   indices: {
     [key: string]: [
       number,
-      boolean | {
-        type: 'fts',
-        tokenizer: 'whitespace'
-      } | {
-        type: 'fts',
-        tokenizer: 'ngram',
-        gramSize: number
-      }
+      IndexMetaConfig
     ]
   }
 }
@@ -67,20 +78,6 @@ export type DocumentDataplyQuery<T> = {
   [key: string]: any
 }
 
-/**
- * Query type restricted to indexed fields only
- */
-export type DocumentDataplyIndexedQuery<
-  T extends DocumentJSON,
-  IC extends IndexConfig<T>
-> = {
-  [key in keyof IC]: key extends keyof FinalFlatten<DataplyDocument<T>>
-  ? FinalFlatten<DataplyDocument<T>>[key] | DocumentDataplyCondition<FinalFlatten<DataplyDocument<T>>[key]>
-  : never
-} & DocumentDataplyQuery<{
-  _id: number
-}>
-
 export interface DataplyTreeValue<T> {
   k: number
   v: T
@@ -89,10 +86,7 @@ export interface DataplyTreeValue<T> {
 /**
  * Options for querying documents.
  */
-export type DocumentDataplyQueryOptions<
-  T extends DocumentJSON,
-  IC extends IndexConfig<T>
-> = {
+export type DocumentDataplyQueryOptions = {
   /**
    * The maximum number of documents to return.
    */
@@ -104,7 +98,7 @@ export type DocumentDataplyQueryOptions<
   /**
    * The field to order the results by.
    */
-  orderBy?: ExtractIndexKeys<T, IC> | '_id'
+  orderBy?: string
   /**
    * The order to sort the results by.
    */
@@ -162,13 +156,6 @@ export type FinalFlatten<T> = {
   [P in DeepFlattenKeys<T>]: GetTypeByPath<T, P & string>
 }
 
-export type DocumentDataplyIndices<T extends DocumentJSON, IC extends IndexConfig<T>> = {
-  [key in keyof IC & keyof FinalFlatten<T>]: GetTypeByPath<T, key>
-}
-
-/**
- * Index configuration type
- */
 export type FTSConfig = {
   type: 'fts',
   tokenizer: 'whitespace'
@@ -176,29 +163,30 @@ export type FTSConfig = {
   type: 'fts',
   tokenizer: 'ngram',
   gramSize: number
-};
-
-export type IndexConfig<T> = Partial<{
-  [key in keyof FinalFlatten<T>]: boolean | FTSConfig
-}>
+}
 
 /**
- * Extract index keys from IndexConfig
+ * createIndex option types
  */
-export type ExtractIndexKeys<
-  T extends DocumentJSON,
-  IC extends IndexConfig<T>
-> = keyof IC & keyof FinalFlatten<DataplyDocument<T>> & string
+export type CreateIndexBTreeOption<T extends DocumentJSON> = {
+  type: 'btree'
+  fields: (DeepFlattenKeys<DataplyDocument<T>> & string)[]
+}
 
-export interface DocumentDataplyOptions<
-  T,
-  IC extends IndexConfig<T> = IndexConfig<T>
-> extends DataplyOptions {
-  /**
-   * Indices to create when initializing the database.
-   * If not specified, no indices will be created.
-   * If the value of the index is `true`, the index will be created for the already inserted data.
-   * If the value of the index is `false`, the index will not be created for the already inserted data.
-   */
-  indices?: IC
+export type CreateIndexFTSOption<T extends DocumentJSON> = {
+  type: 'fts'
+  fields: DeepFlattenKeys<DataplyDocument<T>> & string
+  tokenizer: 'whitespace'
+} | {
+  type: 'fts'
+  fields: DeepFlattenKeys<DataplyDocument<T>> & string
+  tokenizer: 'ngram'
+  ngram: number
+}
+
+export type CreateIndexOption<T extends DocumentJSON> =
+  CreateIndexBTreeOption<T> | CreateIndexFTSOption<T>
+
+export interface DocumentDataplyOptions extends DataplyOptions {
+  // indices removed - use createIndex() method instead
 }

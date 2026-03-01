@@ -8,19 +8,14 @@ type TxDoc = {
 
 describe('DocumentDataply Transaction', () => {
   const dbPath = path.join(__dirname, 'test_tx.db')
-  let db: DocumentDataply<TxDoc, {
-    name: true
-  }>
+  let db: DocumentDataply<TxDoc>
 
   beforeAll(async () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<TxDoc>().Options({
-      indices: {
-        name: true,
-      }
-    }).Open(dbPath)
+    db = DocumentDataply.Define<TxDoc>().Options({}).Open(dbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
   })
 

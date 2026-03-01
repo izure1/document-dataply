@@ -7,9 +7,9 @@ async function run() {
   const action = process.argv[4] // 'commit' or 'no-commit'
 
   const db = DocumentDataply.Define<{ name: string }>().Options({
-    indices: { name: true },
     wal: walPath
   }).Open(dbPath)
+  await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
   await db.init()
 

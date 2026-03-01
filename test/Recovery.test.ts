@@ -25,9 +25,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
     const currentDbPath = path.join(testDir, 'rollback.db')
 
     // 1. Create DB and insert data without index
-    let db = DocumentDataply.Define<RecoveryDoc>().Options({
-      indices: {}
-    }).Open(currentDbPath)
+    let db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
     await db.init()
 
     const count = 50
@@ -38,15 +36,8 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
     await db.close()
 
     // 2. Reopen with NEW index 'score'
-    // We will simulate a failure by mocking or causing an error if possible.
-    // Since we can't easily mock internal BPTree insert without a library like 'jest-mock',
-    // We can test if backfillIndices is atomic.
-
-    db = DocumentDataply.Define<RecoveryDoc>().Options({
-      indices: {
-        score: true
-      }
-    }).Open(currentDbPath)
+    db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    await db.createIndex('idx_score', { type: 'btree', fields: ['score'] })
 
     // Public init() internally calls backfillIndices()
     await db.init()
@@ -60,18 +51,16 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
   test('should persist data and indices after restart', async () => {
     const currentDbPath = path.join(testDir, 'persist.db')
 
-    let db = DocumentDataply.Define<RecoveryDoc>().Options({
-      indices: { name: true }
-    }).Open(currentDbPath)
+    let db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
     await db.insert({ name: 'Persistent', score: 100 })
     await db.close()
 
     // Reopen
-    db = DocumentDataply.Define<RecoveryDoc>().Options({
-      indices: { name: true }
-    }).Open(currentDbPath)
+    db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
     const res = await db.select({ name: 'Persistent' }).drain()
@@ -84,9 +73,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
   test('should handle multiple indices backfill at once', async () => {
     const currentDbPath = path.join(testDir, 'multi_backfill.db')
 
-    let db = DocumentDataply.Define<RecoveryDoc>().Options({
-      indices: {}
-    }).Open(currentDbPath)
+    let db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
     await db.init()
     await db.insertBatch([
       { name: 'A', score: 1 },
@@ -95,12 +82,9 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
     await db.close()
 
     // Add two indices at once
-    db = DocumentDataply.Define<RecoveryDoc>().Options({
-      indices: {
-        name: true,
-        score: true,
-      }
-    }).Open(currentDbPath)
+    db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
+    await db.createIndex('idx_score', { type: 'btree', fields: ['score'] })
     await db.init()
 
     expect((await db.select({ name: 'A' }).drain()).length).toBe(1)

@@ -50,14 +50,16 @@ type MyDocument = {
 }
 
 async function main() {
-  const db = DocumentDataply.Define<MyDocument>().Options({
-    wal: 'my-database.wal',
-    indices: {
-      name: true, // Index both existing and new data
-      age: false, // Index only new data
-      'tags.0': true // Index the first element of the 'tags' array
-    }
-  }).Open('my-database.db');
+  const db = DocumentDataply.Define<MyDocument>()
+    .Options({ wal: 'my-database.wal' })
+    .Open('my-database.db');
+  
+  // Register indices before init (Recommended)
+  await db.createIndex('name', { type: 'btree', fields: ['name'] });
+  await db.createIndex('tags_0', { type: 'btree', fields: ['tags.0'] });
+  
+  // Composite Index support
+  await db.createIndex('idx_name_age', { type: 'btree', fields: ['name', 'age'] });
 
   // Initialize database
   await db.init();
@@ -93,15 +95,30 @@ main();
 
 ## Advanced Usage
 
-### Indexing Policies
+### Dynamic Index Management
 
-When defining indices in the `options`, you can specify a boolean value.
+`document-dataply` supports creating indices at any time—whether before or after the database is initialized.
 
-- `true`: The library indexes all existing documents for that field during `init()`, and also indexes all subsequent insertions.
-- `false`: The library only indexes documents inserted after this configuration.
+- **Pre-Init**: Creating an index before `db.init()` ensures that the database is ready with all necessary structures from the start.
+- **Post-Init**: You can call `db.createIndex()` even after the database is already running. The library will automatically create the index and perform **backfilling** (populating the index with existing data) in the background.
 
-> [!NOTE]
-> `db.init()` automatically performs a backfilling process for fields marked as `true`.
+```typescript
+// Create a new index on an existing database
+await db.createIndex('idx_new_field', { type: 'btree', fields: ['newField'] });
+```
+
+### Composite Indexing
+
+You can create an index on multiple fields. This is useful for optimizing queries that filter or sort by multiple criteria.
+
+```typescript
+await db.createIndex('idx_composite', { 
+  type: 'btree', 
+  fields: ['category', 'price', 'status'] 
+});
+```
+
+The sorting is performed element-by-element in the order defined in the `fields` array. If all values are equal, the system uses the internal `_id` as a fallback to ensure stable sorting.
 
 ### Batch Insertion
 
@@ -155,16 +172,18 @@ For more information on performance optimization and advanced features, see [TIP
 - **Sorting and Pagination**: Detailed usage of `limit`, `orderBy`, and `sortOrder`.
 - **Memory Management**: When to use `stream` vs `drain()`.
 - **Performance**: Optimizing bulk data insertion using `insertBatch`.
-- **Indexing Policies**: Deep dive into index backfilling and configuration.
+- **Indexing Policies**: Dynamic index creation and automatic backfilling.
+- **Composite Indexes**: Indexing multiple fields for complex queries.
 
 ## API Reference
 
-### `DocumentDataply.Define<T>().Options(options).Open(file)`
-Creates or opens a database instance. `T` defines the document structure.
-`options.indices` is an object where keys are field names and values are booleans indicating the [Indexing Policy](#indexing-policies).
+### `db.createIndex(name, options)`
+Registers or creates a named index. Can be called at any time.
+- `options`: `{ type: 'btree', fields: string[] }` or `{ type: 'fts', fields: string, tokenizer: ... }`.
+- Returns `Promise<this>` for chaining.
 
 ### `db.init()`
-Initializes the database, sets up internal metadata, and prepares indices.
+Initializes the database and sets up system-managed indices. It also triggers backfilling for indices registered before `init()`.
 
 ### `db.insert(document, tx?)`
 Inserts a single document. Each document is automatically assigned a unique, immutable `_id` field. The method returns this `_id` (`number`).

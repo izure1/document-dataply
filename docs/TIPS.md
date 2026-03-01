@@ -30,18 +30,24 @@ await db.insertBatch(docs);
 
 ## 5. Dynamic Index Management and Backfilling
 
-If you add a new field to the `indices` option during database initialization, the `init()` method will automatically scan existing data and populate the index when it runs (Backfilling).
+You can add a new index at any time using the `createIndex()` method. If you add an index to a database that already contains data, the library will automatically perform **Backfilling** (scanning existing data and populating the index).
 
 ```typescript
 // Example: Adding an index for a previously non-existent 'email' field
-const db = DocumentDataply.Define<MyDoc>().Options({
-  indices: {
-    name: true,
-    email: true // Newly added. Automatically creates an index for existing data when init() is called.
-  }
-}).Open(file);
+const db = DocumentDataply.Define<MyDoc>()
+  .Options({ wal: 'my-database.db.wal' })
+  .Open('my-database.db');
+
 await db.init();
+
+// Even after init, you can create a new index.
+// This will popluate existing data into the index automatically.
+await db.createIndex('idx_email', { type: 'btree', fields: ['email'] });
 ```
 
-> [!NOTE]
-> Setting it to `true` re-indexes all existing data, while setting it to `false` only indexes data that comes in from that point forward.
+## 6. Composite Index Tips
+
+- **Field Order Matters**: A composite index on `['a', 'b']` is different from `['b', 'a']`. Choose the order based on your most frequent query filters and sort requirements.
+- **Leading Field**: To use a composite index for range queries, the query must include the first field of the index.
+- **Selectivity**: Composite indexes often have higher selectivity than single-field indexes, which can significantly speed up complex queries.
+

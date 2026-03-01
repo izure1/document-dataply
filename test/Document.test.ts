@@ -17,33 +17,21 @@ type UserDoc = {
 
 describe('DocumentDataply Basic CRUD', () => {
   const dbPath = path.join(__dirname, 'test_basic.db')
-  let db: DocumentDataply<UserDoc, {
-    name: true
-    age: true
-    city: true
-    'user.profile.nickname': true
-    'user.profile.level': true
-    'tags.0': true
-    'tags.1': true
-    'tags.5': true
-  }>
+  let db: DocumentDataply<UserDoc>
 
   beforeEach(async () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<UserDoc>().Options({
-      indices: {
-        name: true,
-        age: true,
-        city: true,
-        'user.profile.nickname': true,
-        'user.profile.level': true,
-        'tags.0': true,
-        'tags.1': true,
-        'tags.5': true,
-      }
-    }).Open(dbPath)
+    db = DocumentDataply.Define<UserDoc>().Options({}).Open(dbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
+    await db.createIndex('idx_age', { type: 'btree', fields: ['age'] })
+    await db.createIndex('idx_city', { type: 'btree', fields: ['city'] })
+    await db.createIndex('idx_nickname', { type: 'btree', fields: ['user.profile.nickname'] })
+    await db.createIndex('idx_level', { type: 'btree', fields: ['user.profile.level'] })
+    await db.createIndex('idx_tags_0', { type: 'btree', fields: ['tags.0'] })
+    await db.createIndex('idx_tags_1', { type: 'btree', fields: ['tags.1'] })
+    await db.createIndex('idx_tags_5', { type: 'btree', fields: ['tags.5'] })
     await db.init()
   })
 
@@ -213,8 +201,6 @@ describe('DocumentDataply Basic CRUD', () => {
     })
 
     test('should support offset with in-memory sorting (orderBy)', async () => {
-      // city is indexed, but using it with age (also indexed) but sorting by name (indexed)
-      // to trigger the in-memory sorting logic path in select()
       const results = await db.select({}, { orderBy: 'name', sortOrder: 'desc', offset: 1, limit: 2 }).drain()
       expect(results.length).toBe(2)
       expect(results[0].name).toBe('User 4')

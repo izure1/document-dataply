@@ -4,17 +4,14 @@ import * as path from 'node:path'
 
 describe('Top-K Optimization', () => {
   const dbPath = path.join(__dirname, 'tmp_topk')
-  let db: DocumentDataply<any, any>
+  let db: DocumentDataply<any>
 
   beforeAll(async () => {
     if (fs.existsSync(dbPath)) fs.rmSync(dbPath, { recursive: true, force: true })
     db = DocumentDataply.Define<{ name: string; age: number }>()
-      .Options({
-        indices: {
-          age: true // age IS indexed to satisfy the check
-        }
-      })
+      .Options({})
       .Open(dbPath)
+    await db.createIndex('idx_age', { type: 'btree', fields: ['age'] })
     await db.init()
 
     // Insert 1000 items

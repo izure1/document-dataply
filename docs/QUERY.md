@@ -72,22 +72,24 @@ To use the `match` operator, the field must be explicitly configured as an **FTS
 
 ### FTS Configuration
 
-When defining your database, use the following structure for FTS indices:
+Use the `createIndex` method to define FTS indices:
 
 ```typescript
-const db = DocumentDataply.Define<MyDocument>().Options({
-  indices: {
-    // Standard Index: Supports equal, lt, gt, gte, lte, like, or
-    category: true, 
+const db = DocumentDataply.Define<MyDocument>()
+  .Options({ wal: 'my-database.db.wal' })
+  .Open('my-database.db');
 
-    // FTS Index: Supports ONLY 'match'
-    // Whitespace tokenizer: Splits by whitespace
-    content: { type: 'fts', tokenizer: 'whitespace' },
+// Standard Index: Supports equal, lt, gt, gte, lte, like, or
+await db.createIndex('idx_category', { type: 'btree', fields: ['category'] }); 
 
-    // N-gram tokenizer: Splits into chunks of 'gramSize'
-    title: { type: 'fts', tokenizer: 'ngram', gramSize: 2 }
-  }
-}).Open('my-database.db');
+// FTS Index: Supports ONLY 'match'
+// Whitespace tokenizer: Splits by whitespace
+await db.createIndex('idx_content', { type: 'fts', fields: 'content', tokenizer: 'whitespace' });
+
+// N-gram tokenizer: Splits into chunks of 'gramSize'
+await db.createIndex('idx_title', { type: 'fts', fields: 'title', tokenizer: 'ngram', gramSize: 2 });
+
+await db.init();
 ```
 
 > [!IMPORTANT]
@@ -112,7 +114,7 @@ const results = await db.select(
 ```
 
 > [!NOTE]
-> The field specified in `orderBy` must have an index created during initialization. If you attempt to sort by an unindexed field or do not specify `orderBy`, documents will be returned based on internal rules and the order is not guaranteed.
+> The field(s) specified in `orderBy` must be indexed (either as a single-field index or the **first field** of a composite index). If you attempt to sort by an unindexed field or do not specify `orderBy`, documents will be returned based on internal rules and the order is not guaranteed.
 
 ## 5. Nested Fields and the Default Field (`_id`)
 
@@ -120,11 +122,9 @@ const results = await db.select(
 - **Nested Fields**: Fields deep within a document or specific array elements can be queried if they are indexed.
 
 ```typescript
-// When defining options
-indices: {
-  'user.profile.name': true,
-  'tags.0': true
-}
+// When defining indices
+await db.createIndex('idx_user_name', { type: 'btree', fields: ['user.profile.name'] });
+await db.createIndex('idx_tags_0', { type: 'btree', fields: ['tags.0'] });
 
 // When querying
 const user = await db.select({
@@ -132,6 +132,25 @@ const user = await db.select({
 }).drain();
 ```
 
-## 7. Performance Optimization: Selectivity
+## 7. Composite Indexes
+
+`document-dataply` supports indexing multiple fields in a single B+Tree. This is highly efficient for complex queries that involve multiple conditions or specific sorting requirements.
+
+### Creating a Composite Index
+
+```typescript
+await db.createIndex('idx_category_price', {
+  type: 'btree',
+  fields: ['category', 'price']
+});
+```
+
+### How it Works
+
+1. **Sorting**: Values are sorted by the first field, then the second, and so on.
+2. **Querying**: The engine can use a composite index if the query includes the **leading field(s)** of the index.
+3. **Selectivity**: The query engine automatically evaluates composite indexes to determine if they are the most efficient option for a given query.
+
+## 8. Performance Optimization: Selectivity
 
 When multiple fields are included in a query, the engine calculates **Selectivity**. It analyzes data distribution to prioritize the index that best reduces the result set (i.e., fields with more unique values) to maximize search efficiency.

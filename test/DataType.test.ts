@@ -9,19 +9,14 @@ type MixedDoc = {
 
 describe('DocumentDataply Mixed Data Type Test', () => {
   const dbPath = path.join(__dirname, 'test_datatype.db')
-  let db: DocumentDataply<MixedDoc, {
-    value: true
-  }>
+  let db: DocumentDataply<MixedDoc>
 
   beforeEach(async () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<MixedDoc>().Options({
-      indices: {
-        value: true
-      }
-    }).Open(dbPath)
+    db = DocumentDataply.Define<MixedDoc>().Options({}).Open(dbPath)
+    await db.createIndex('idx_value', { type: 'btree', fields: ['value'] })
     await db.init()
   })
 

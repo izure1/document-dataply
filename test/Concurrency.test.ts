@@ -9,21 +9,15 @@ type CounterDoc = {
 
 describe('DocumentDataply Concurrency Stress Test', () => {
   const dbPath = path.join(__dirname, 'test_concurrency.db')
-  let db: DocumentDataply<CounterDoc, {
-    name: true
-    count: true
-  }>
+  let db: DocumentDataply<CounterDoc>
 
   beforeEach(async () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<CounterDoc>().Options({
-      indices: {
-        name: true,
-        count: true
-      }
-    }).Open(dbPath)
+    db = DocumentDataply.Define<CounterDoc>().Options({}).Open(dbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
+    await db.createIndex('idx_count', { type: 'btree', fields: ['count'] })
     await db.init()
   })
 

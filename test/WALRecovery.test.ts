@@ -38,11 +38,10 @@ describe('DocumentDataply WAL Crash Recovery', () => {
     expect(result.status).toBe(0)
 
     // 2. Open DB in this process
-    // At this point, crash.db.wal should exist and contain the committed record
     const db = DocumentDataply.Define<{ name: string }>().Options({
-      indices: { name: true },
       wal: walPath
     }).Open(dbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
 
@@ -61,9 +60,9 @@ describe('DocumentDataply WAL Crash Recovery', () => {
 
     // 2. Open DB
     const db = DocumentDataply.Define<{ name: string }>().Options({
-      indices: { name: true },
       wal: walPath
     }).Open(dbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
 

@@ -9,23 +9,16 @@ type TagDoc = {
 
 describe('DocumentDataply Array Index Shift Test', () => {
   const dbPath = path.join(__dirname, 'test_arrayshift.db')
-  let db: DocumentDataply<TagDoc, {
-    name: true
-    'tags.0': true
-    'tags.1': true
-  }>
+  let db: DocumentDataply<TagDoc>
 
   beforeEach(async () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<TagDoc>().Options({
-      indices: {
-        name: true,
-        'tags.0': true,
-        'tags.1': true
-      }
-    }).Open(dbPath)
+    db = DocumentDataply.Define<TagDoc>().Options({}).Open(dbPath)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
+    await db.createIndex('idx_tags_0', { type: 'btree', fields: ['tags.0'] })
+    await db.createIndex('idx_tags_1', { type: 'btree', fields: ['tags.1'] })
     await db.init()
   })
 

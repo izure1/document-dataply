@@ -11,13 +11,7 @@ interface FTSDoc {
 
 describe('Full Text Search (FTS)', () => {
   const dbPath = path.join(__dirname, 'test_fts_db.dp')
-  let db: DocumentDataplyAPI<FTSDoc, {
-    content: {
-      type: 'fts',
-      tokenizer: 'ngram',
-      gramSize: 2
-    }
-  }>
+  let db: DocumentDataplyAPI<FTSDoc>
 
   beforeAll(async () => {
     // 이전 잔여 파일 제거
@@ -25,11 +19,8 @@ describe('Full Text Search (FTS)', () => {
       await fs.unlink(dbPath)
     } catch (e) { }
 
-    db = new DocumentDataplyAPI<FTSDoc, { content: { type: 'fts', tokenizer: 'ngram', gramSize: 2 } }>(dbPath, {
-      indices: {
-        content: { type: 'fts', tokenizer: 'ngram', gramSize: 2 }
-      }
-    })
+    db = new DocumentDataplyAPI<FTSDoc>(dbPath, {})
+    await db.registerIndex('idx_content', { type: 'fts', fields: 'content', tokenizer: 'ngram', ngram: 2 })
     await db.init()
   })
 

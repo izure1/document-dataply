@@ -1,16 +1,16 @@
 import type {
   DocumentDataplyOptions,
   DocumentJSON,
-  DocumentDataplyIndexedQuery,
+  DocumentDataplyQuery,
   DataplyDocument,
   DocumentDataplyMetadata,
   DocumentDataplyQueryOptions,
-  IndexConfig
+  CreateIndexOption
 } from '../types'
 import { Transaction } from 'dataply'
 import { DocumentDataplyAPI } from './documentAPI'
 
-export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> {
+export class DocumentDataply<T extends DocumentJSON> {
   /**
    * Starts the database definition by setting the document type.
    * This is used to ensure TypeScript type inference works correctly for the document structure.
@@ -19,45 +19,57 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
   static Define<T extends DocumentJSON>() {
     return {
       /**
-       * Sets the options for the database, such as index configurations and WAL settings.
-       * @template IC The configuration of indices.
+       * Sets the options for the database, such as WAL settings.
        * @param options The database initialization options.
        */
-      Options: <IC extends IndexConfig<T>>(
-        options: DocumentDataplyOptions<T, IC>
-      ) => DocumentDataply.Options<T, IC>(options)
+      Options: (
+        options: DocumentDataplyOptions
+      ) => DocumentDataply.Options<T>(options)
     }
   }
 
   /**
    * Internal method used by the Define-chain to pass options.
    */
-  private static Options<T extends DocumentJSON, IC extends IndexConfig<T>>(
-    options: DocumentDataplyOptions<T, IC>
+  private static Options<T extends DocumentJSON>(
+    options: DocumentDataplyOptions
   ) {
     return {
       /**
        * Creates or opens the database instance with the specified file path.
        * @param file The path to the database file.
        */
-      Open: (file: string) => DocumentDataply.Open<T, IC>(file, options)
+      Open: (file: string) => DocumentDataply.Open<T>(file, options)
     }
   }
 
   /**
    * Internal method used to finalize construction and create the instance.
    */
-  private static Open<T extends DocumentJSON, IC extends IndexConfig<T>>(
+  private static Open<T extends DocumentJSON>(
     file: string,
-    options: DocumentDataplyOptions<T, IC>
+    options: DocumentDataplyOptions
   ) {
-    return new DocumentDataply<T, IC>(file, options)
+    return new DocumentDataply<T>(file, options)
   }
 
-  protected readonly api: DocumentDataplyAPI<T, IC>
+  protected readonly api: DocumentDataplyAPI<T>
 
-  protected constructor(file: string, options?: DocumentDataplyOptions<T, IC>) {
+  protected constructor(file: string, options?: DocumentDataplyOptions) {
     this.api = new DocumentDataplyAPI(file, options ?? {} as any)
+  }
+
+  /**
+   * Create a named index on the database.
+   * Can be called before or after init().
+   * If called after init(), the index is immediately created and backfilled.
+   * @param name The name of the index
+   * @param option The index configuration (btree or fts)
+   * @returns Promise<this> for chaining
+   */
+  async createIndex(name: string, option: CreateIndexOption<T>): Promise<this> {
+    await this.api.registerIndex(name, option)
+    return this
   }
 
   /**
@@ -104,13 +116,13 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
   /**
    * Fully update documents from the database that match the query
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param newRecord Complete document to replace with, or function that receives current document and returns new document
    * @param tx The transaction to use
    * @returns The number of updated documents
    */
   async fullUpdate(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     newRecord: T | ((document: DataplyDocument<T>) => T),
     tx?: Transaction
   ): Promise<number> {
@@ -119,13 +131,13 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
   /**
    * Partially update documents from the database that match the query
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param newRecord Partial document to merge, or function that receives current document and returns partial update
    * @param tx The transaction to use
    * @returns The number of updated documents
    */
   async partialUpdate(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     newRecord: Partial<DataplyDocument<T>> | ((document: DataplyDocument<T>) => Partial<DataplyDocument<T>>),
     tx?: Transaction
   ): Promise<number> {
@@ -134,12 +146,12 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
   /**
    * Delete documents from the database that match the query
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param tx The transaction to use
    * @returns The number of deleted documents
    */
   async delete(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     tx?: Transaction
   ): Promise<number> {
     return this.api.deleteDocuments(query, tx)
@@ -147,12 +159,12 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
   /**
    * Count documents from the database that match the query
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param tx The transaction to use
    * @returns The number of documents that match the query
    */
   async count(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
+    query: Partial<DocumentDataplyQuery<T>>,
     tx?: Transaction
   ): Promise<number> {
     return this.api.countDocuments(query, tx)
@@ -160,15 +172,15 @@ export class DocumentDataply<T extends DocumentJSON, IC extends IndexConfig<T>> 
 
   /**
    * Select documents from the database
-   * @param query The query to use (only indexed fields + _id allowed)
+   * @param query The query to use
    * @param options The options to use
    * @param tx The transaction to use
    * @returns The documents that match the query
    * @throws Error if query or orderBy contains non-indexed fields
    */
   select(
-    query: Partial<DocumentDataplyIndexedQuery<T, IC>>,
-    options: DocumentDataplyQueryOptions<T, IC> = {},
+    query: Partial<DocumentDataplyQuery<T>>,
+    options: DocumentDataplyQueryOptions = {},
     tx?: Transaction
   ): {
     stream: AsyncIterableIterator<DataplyDocument<T>>
