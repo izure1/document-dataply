@@ -54,6 +54,10 @@ export interface DocumentDataplyMetadata {
    * The total number of data rows in the dataply.
    */
   rowCount: number
+  /**
+   * The list of user-created index names (excludes internal '_id' index).
+   */
+  indices: string[]
 }
 
 export type DataplyDocumentBase = { _id: number }

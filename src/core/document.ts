@@ -65,10 +65,23 @@ export class DocumentDataply<T extends DocumentJSON> {
    * If called after init(), the index is immediately created and backfilled.
    * @param name The name of the index
    * @param option The index configuration (btree or fts)
+   * @param tx Optional transaction
    * @returns Promise<this> for chaining
    */
-  async createIndex(name: string, option: CreateIndexOption<T>): Promise<this> {
-    await this.api.registerIndex(name, option)
+  async createIndex(name: string, option: CreateIndexOption<T>, tx?: Transaction): Promise<this> {
+    await this.api.registerIndex(name, option, tx)
+    return this
+  }
+
+  /**
+   * Drop (remove) a named index from the database.
+   * The '_id' index cannot be dropped.
+   * @param name The name of the index to drop
+   * @param tx Optional transaction
+   * @returns Promise<this> for chaining
+   */
+  async dropIndex(name: string, tx?: Transaction): Promise<this> {
+    await this.api.dropIndex(name, tx)
     return this
   }
 

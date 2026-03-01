@@ -189,21 +189,21 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    * Register an index. If called before init(), queues it for processing during init.
    * If called after init(), immediately creates the tree, updates metadata, and backfills.
    */
-  async registerIndex(name: string, option: CreateIndexOption<T>): Promise<void> {
+  async registerIndex(name: string, option: CreateIndexOption<T>, tx?: Transaction): Promise<void> {
     if (!this._initialized) {
       // Pre-init: just queue it
       this.pendingCreateIndices.set(name, option)
       return
     }
     // Post-init: register immediately
-    await this.registerIndexRuntime(name, option)
+    await this.registerIndexRuntime(name, option, tx)
   }
 
   /**
    * Register an index at runtime (after init).
    * Creates the tree, updates metadata, and backfills existing data.
    */
-  private async registerIndexRuntime(name: string, option: CreateIndexOption<T>): Promise<void> {
+  private async registerIndexRuntime(name: string, option: CreateIndexOption<T>, tx?: Transaction): Promise<void> {
     const config = this.toIndexMetaConfig(option)
 
     // 이미 동일한 이름의 인덱스가 존재하면 스킵
@@ -248,7 +248,61 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         this.pendingBackfillFields = [name]
         await this.backfillIndices(tx)
       }
-    })
+    }, tx)
+  }
+
+  /**
+   * Drop (remove) a named index.
+   * Removes the index from metadata, in-memory maps, and trees.
+   * The '_id' index cannot be dropped.
+   * @param name The name of the index to drop
+   */
+  async dropIndex(name: string, tx?: Transaction): Promise<void> {
+    if (name === '_id') {
+      throw new Error('Cannot drop the _id index')
+    }
+    if (!this._initialized) {
+      // Pre-init: just remove from pending
+      this.pendingCreateIndices.delete(name)
+      return
+    }
+    if (!this.registeredIndices.has(name)) {
+      throw new Error(`Index '${name}' does not exist`)
+    }
+
+    await this.runWithDefault(async (tx) => {
+      const config = this.registeredIndices.get(name)!
+
+      // 1. 메타데이터에서 제거
+      const metadata = await this.getDocumentInnerMetadata(tx)
+      delete metadata.indices[name]
+      await this.updateDocumentInnerMetadata(metadata, tx)
+      this.indices = metadata.indices
+
+      // 2. registeredIndices에서 제거
+      this.registeredIndices.delete(name)
+
+      // 3. fieldToIndices / indexedFields 갱신
+      const fields = this.getFieldsFromConfig(config)
+      for (const field of fields) {
+        const indexNames = this.fieldToIndices.get(field)
+        if (indexNames) {
+          const filtered = indexNames.filter(n => n !== name)
+          if (filtered.length === 0) {
+            this.fieldToIndices.delete(field)
+            // 다른 인덱스가 이 필드를 커버하지 않으면 indexedFields에서도 제거
+            if (field !== '_id') {
+              this.indexedFields.delete(field)
+            }
+          } else {
+            this.fieldToIndices.set(field, filtered)
+          }
+        }
+      }
+
+      // 4. 트리 제거
+      this.trees.delete(name)
+    }, tx)
   }
 
   /**
@@ -551,10 +605,17 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
     const metadata = await this.getMetadata(tx)
+    const indices: string[] = []
+    for (const name of this.registeredIndices.keys()) {
+      if (name !== '_id') {
+        indices.push(name)
+      }
+    }
     return {
       pageSize: metadata.pageSize,
       pageCount: metadata.pageCount,
-      rowCount: metadata.rowCount
+      rowCount: metadata.rowCount,
+      indices,
     }
   }
 
