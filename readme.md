@@ -54,15 +54,17 @@ async function main() {
     .Options({ wal: 'my-database.wal' })
     .Open('my-database.db');
   
-  // Register indices before init (Recommended)
-  await db.createIndex('name', { type: 'btree', fields: ['name'] });
-  await db.createIndex('tags_0', { type: 'btree', fields: ['tags.0'] });
-  
-  // Composite Index support
-  await db.createIndex('idx_name_age', { type: 'btree', fields: ['name', 'age'] });
-
   // Initialize database
   await db.init();
+
+  // Register indices
+  await db.migration(1, async (tx) => {
+    await db.createIndex('name', { type: 'btree', fields: ['name'] });
+    await db.createIndex('tags_0', { type: 'btree', fields: ['tags.0'] });
+  
+    // Composite Index support
+    await db.createIndex('idx_name_age', { type: 'btree', fields: ['name', 'age'] });
+  });
 
   // Insert document
   const id = await db.insert({
