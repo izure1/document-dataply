@@ -316,14 +316,39 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    * Convert CreateIndexOption to IndexMetaConfig for metadata storage.
    */
   private toIndexMetaConfig(option: CreateIndexOption<T>): IndexMetaConfig {
+    if (!option || typeof option !== 'object') {
+      throw new Error('Index option must be a non-null object')
+    }
+    if (!option.type) {
+      throw new Error('Index option must have a "type" property ("btree" or "fts")')
+    }
+
     if (option.type === 'btree') {
+      if (!Array.isArray(option.fields) || option.fields.length === 0) {
+        throw new Error('btree index requires a non-empty "fields" array')
+      }
+      for (let i = 0; i < option.fields.length; i++) {
+        if (
+          typeof option.fields[i] !== 'string' ||
+          (option.fields[i] as string).length === 0
+        ) {
+          throw new Error(`btree index "fields[${i}]" must be a non-empty string, got: ${JSON.stringify(option.fields[i])}`)
+        }
+      }
       return {
         type: 'btree',
         fields: option.fields as string[]
       }
     }
+
     if (option.type === 'fts') {
+      if (typeof option.fields !== 'string' || option.fields.length === 0) {
+        throw new Error(`fts index requires a non-empty string "fields", got: ${JSON.stringify(option.fields)}`)
+      }
       if (option.tokenizer === 'ngram') {
+        if (typeof option.ngram !== 'number' || option.ngram < 1) {
+          throw new Error(`fts ngram index requires a positive "ngram" number, got: ${JSON.stringify(option.ngram)}`)
+        }
         return {
           type: 'fts',
           fields: option.fields as string,
