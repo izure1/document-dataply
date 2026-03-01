@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772389685839,
+  "lastUpdate": 1772407789763,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -1953,6 +1953,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 86.77,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "e3d716baa595e933be13b49652a48b4622d314b6",
+          "message": "chore: 버전 업데이트",
+          "timestamp": "2026-03-02T08:28:58+09:00",
+          "tree_id": "b827092cdab163910b66c8563a66cbf651719ffe",
+          "url": "https://github.com/izure1/document-dataply/commit/e3d716baa595e933be13b49652a48b4622d314b6"
+        },
+        "date": 1772407789525,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2794.78,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 19.26,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 17.56,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 4.54,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 2644.19,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 89.98,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 88.26,
             "unit": "ms"
           }
         ]
