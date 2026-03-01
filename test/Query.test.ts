@@ -96,7 +96,6 @@ describe('DocumentDataply Query Operators', () => {
     const results = await db.select({
       category: { or: ['A', 'C'] }
     }).drain()
-    // category A(2ê°? + C(1ê°? = 3ê°?
     expect(results.length).toBe(3)
     results.forEach(r => expect(['A', 'C']).toContain(r.category))
   })

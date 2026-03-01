@@ -45,9 +45,34 @@ function compareValue(a: Primitive | Primitive[], b: Primitive | Primitive[]): n
   return aList.length - bList.length
 }
 
+/**
+ * 접두사 매칭(prefix match) 비교.
+ * 짧은 쪽 배열이 긴 쪽의 접두사와 모두 일치하면 0을 반환합니다.
+ * 복합 인덱스에서 primaryEqual 등 부분 필드 검색을 지원합니다.
+ */
+function comparePrimaryValue(a: Primitive | Primitive[], b: Primitive | Primitive[]): number {
+  const aArr = Array.isArray(a)
+  const bArr = Array.isArray(b)
+
+  if (!aArr && !bArr) {
+    return comparePrimitive(a as Primitive, b as Primitive)
+  }
+
+  const aList = aArr ? a as Primitive[] : [a as Primitive]
+  const bList = bArr ? b as Primitive[] : [b as Primitive]
+  const len = Math.min(aList.length, bList.length)
+
+  for (let i = 0; i < len; i++) {
+    const diff = comparePrimitive(aList[i], bList[i])
+    if (diff !== 0) return diff
+  }
+  // prefix match: 짧은 쪽이 긴 쪽의 접두사와 일치하면 0 반환
+  return 0
+}
+
 export class DocumentValueComparator<T extends DataplyTreeValue<U>, U extends Primitive> extends ValueComparator<T> {
   primaryAsc(a: T, b: T): number {
-    return compareValue(a.v, b.v)
+    return comparePrimaryValue(a.v, b.v)
   }
 
   asc(a: T, b: T): number {
