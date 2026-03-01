@@ -3,6 +3,12 @@ import { BPTreeNode, SerializeStrategyAsync, type SerializeStrategyHead } from '
 import { DocumentDataplyAPI } from '../documentAPI'
 
 export class DocumentSerializeStrategyAsync<T extends Primitive> extends SerializeStrategyAsync<number, DataplyTreeValue<T>> {
+  /**
+   * readHead에서 할당된 headPk를 캐싱하여
+   * writeHead에서 AsyncLocalStorage 컨텍스트 유실 시에도 사용할 수 있도록 함
+   */
+  private cachedHeadPk: number | null = null
+
   constructor(
     order: number,
     protected readonly api: DocumentDataplyAPI<any>,
@@ -54,8 +60,14 @@ export class DocumentSerializeStrategyAsync<T extends Primitive> extends Seriali
       metadata.indices[this.treeKey][0] = pk
       await this.api.updateDocumentInnerMetadata(metadata, tx!)
 
+      // headPk 캐싱 (writeHead에서 사용)
+      this.cachedHeadPk = pk
+
       return null // BPTree 초기화를 트리거하기 위해 null 반환 (루트 생성 및 writeHead 호출)
     }
+
+    // headPk 캐싱 (writeHead에서 사용)
+    this.cachedHeadPk = headPk
 
     const row = await this.api.select(headPk, false, tx)
     // row가 null이거나 빈 문자열이거나 placeholder면 아직 초기화되지 않은 것 → null 반환하여 init 트리거
@@ -66,15 +78,19 @@ export class DocumentSerializeStrategyAsync<T extends Primitive> extends Seriali
 
   async writeHead(head: SerializeStrategyHead): Promise<void> {
     const tx = this.txContext.get()
-    const metadata = await this.api.getDocumentInnerMetadata(tx!)
-    const indexInfo = metadata.indices[this.treeKey]
+    let headPk = this.cachedHeadPk
 
-    if (!indexInfo) {
-      throw new Error(`Index info not found for tree: ${this.treeKey}. Initialization should be handled outside.`)
+    // 캐시가 없으면 메타데이터에서 읽기 (폴백)
+    if (headPk === null) {
+      const metadata = await this.api.getDocumentInnerMetadata(tx!)
+      const indexInfo = metadata.indices[this.treeKey]
+      if (!indexInfo) {
+        throw new Error(`Index info not found for tree: ${this.treeKey}. Initialization should be handled outside.`)
+      }
+      headPk = indexInfo[0]
     }
-    const headPk = indexInfo[0]
-    const json = JSON.stringify(head)
 
+    const json = JSON.stringify(head)
     await this.api.update(headPk, json, tx)
   }
 }
