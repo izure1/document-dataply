@@ -93,10 +93,16 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       const metadata = await this.getDocumentInnerMetadata(tx)
 
       // _id 인덱스는 항상 자동 등록
-      const targetIndices: Map<string, IndexMetaConfig> = new Map()
-      targetIndices.set('_id', { type: 'btree', fields: ['_id'] })
+      const targetIndices: Map<string, IndexMetaConfig> = new Map([
+        ['_id', { type: 'btree', fields: ['_id'] }]
+      ])
 
-      // pendingCreateIndices에서 인덱스 설정을 IndexMetaConfig로 변환
+      // 1. 기존 메타데이터에 있는 인덱스들 로드
+      for (const [name, info] of Object.entries(metadata.indices)) {
+        targetIndices.set(name, info[1])
+      }
+
+      // 2. pendingCreateIndices에서 추가/업데이트된 설정 적용
       for (const [name, option] of this.pendingCreateIndices) {
         const config = this.toIndexMetaConfig(option)
         targetIndices.set(name, config)
@@ -294,7 +300,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
             if (field !== '_id') {
               this.indexedFields.delete(field)
             }
-          } else {
+          }
+          else {
             this.fieldToIndices.set(field, filtered)
           }
         }
