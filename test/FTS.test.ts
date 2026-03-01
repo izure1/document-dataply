@@ -20,7 +20,7 @@ describe('Full Text Search (FTS)', () => {
     } catch (e) { }
 
     db = new DocumentDataplyAPI<FTSDoc>(dbPath, {})
-    await db.registerIndex('idx_content', { type: 'fts', fields: 'content', tokenizer: 'ngram', ngram: 2 })
+    await db.registerIndex('idx_content', { type: 'fts', fields: 'content', tokenizer: 'ngram', gramSize: 2 })
     await db.init()
   })
 
