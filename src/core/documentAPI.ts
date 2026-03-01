@@ -346,14 +346,14 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         throw new Error(`fts index requires a non-empty string "fields", got: ${JSON.stringify(option.fields)}`)
       }
       if (option.tokenizer === 'ngram') {
-        if (typeof option.ngram !== 'number' || option.ngram < 1) {
-          throw new Error(`fts ngram index requires a positive "ngram" number, got: ${JSON.stringify(option.ngram)}`)
+        if (typeof option.gramSize !== 'number' || option.gramSize < 1) {
+          throw new Error(`fts ngram index requires a positive "gramSize" number, got: ${JSON.stringify(option.gramSize)}`)
         }
         return {
           type: 'fts',
           fields: option.fields as string,
           tokenizer: 'ngram',
-          gramSize: option.ngram
+          gramSize: option.gramSize
         }
       }
       return {

@@ -190,7 +190,7 @@ export type CreateIndexFTSOption<T extends DocumentJSON> = {
   type: 'fts'
   fields: DeepFlattenKeys<DataplyDocument<T>> & string
   tokenizer: 'ngram'
-  ngram: number
+  gramSize: number
 }
 
 export type CreateIndexOption<T extends DocumentJSON> =
