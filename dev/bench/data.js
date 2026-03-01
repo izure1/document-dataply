@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772380234110,
+  "lastUpdate": 1772388153070,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -1717,6 +1717,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 83.66,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "d70bc0ee3904ca2ebfd91ee581397e79e8e6bac8",
+          "message": "fix: 복합 인덱스에서 equal로 조건 검색 시, 제대로 검색되지 않던 오류를 수정합니다",
+          "timestamp": "2026-03-02T02:55:09+09:00",
+          "tree_id": "57bc77d34e02dd0c4afaa178316ae4c6e07932cd",
+          "url": "https://github.com/izure1/document-dataply/commit/d70bc0ee3904ca2ebfd91ee581397e79e8e6bac8"
+        },
+        "date": 1772388152648,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2944.46,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 20.56,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 18.49,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 4.46,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 2828.76,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 88.01,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 86.62,
             "unit": "ms"
           }
         ]
