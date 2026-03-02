@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772449799713,
+  "lastUpdate": 1772471623874,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -2071,6 +2071,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 90.71,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "4630618e20b1e993ae8fa3ad40221dda0956a844",
+          "message": "fix: 비트맵 추가 확장이 필요할 경우, 메타데이터 업데이트가 무시되던 현상으로 인해 내부적으로 재귀현상이 반복되던 오류를 수정합니다",
+          "timestamp": "2026-03-03T02:12:38+09:00",
+          "tree_id": "505806418b3a02764316007dfe4094cc5d6c7bc6",
+          "url": "https://github.com/izure1/document-dataply/commit/4630618e20b1e993ae8fa3ad40221dda0956a844"
+        },
+        "date": 1772471623046,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 3000.15,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 19.73,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 12.61,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 114.56,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3025.35,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 93.6,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 90.01,
             "unit": "ms"
           }
         ]
