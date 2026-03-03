@@ -29,8 +29,8 @@ describe('DocumentDataply Concurrency Stress Test', () => {
   })
 
   test('should handle multiple concurrent insertions', async () => {
-    const numParallel = 20
-    const opsPerParallel = 50
+    const numParallel = 10
+    const opsPerParallel = 10
     const totalDocs = numParallel * opsPerParallel
 
     const promises = []

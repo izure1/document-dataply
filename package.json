@@ -1,6 +1,6 @@
 {
   "name": "document-dataply",
-  "version": "0.0.9-alpha.8",
+  "version": "0.0.9-alpha.9",
   "description": "Simple and powerful JSON document database supporting complex queries and flexible indexing policies.",
   "license": "MIT",
   "author": "izure <admin@izure.org>",
@@ -42,7 +42,7 @@
     "dataply"
   ],
   "dependencies": {
-    "dataply": "^0.0.24-alpha.4"
+    "dataply": "^0.0.24-alpha.7"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

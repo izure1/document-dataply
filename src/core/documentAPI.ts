@@ -21,8 +21,7 @@ import {
   DataplyAPI,
   Transaction,
   BPTreeAsync,
-  BPTreeAsyncTransaction,
-  Ryoiki
+  BPTreeAsyncTransaction
 } from 'dataply'
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { DocumentValueComparator } from './bptree/documentComparator'
@@ -32,13 +31,13 @@ import { tokenize } from '../utils/tokenizer'
 
 export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   declare runWithDefault
+  declare runWithDefaultWrite
   declare streamWithDefault
 
   indices: DocumentDataplyInnerMetadata['indices'] = {}
   readonly trees: Map<string, BPTreeAsync<string | number, DataplyTreeValue<Primitive>>> = new Map()
   readonly comparator = new DocumentValueComparator()
   private pendingBackfillFields: string[] = []
-  private readonly lock: Ryoiki
   private _initialized = false
 
   readonly indexedFields: Set<string>
@@ -78,7 +77,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   constructor(file: string, options: DocumentDataplyOptions) {
     super(file, options)
     this.trees = new Map()
-    this.lock = new Ryoiki()
 
     // _id는 항상 포함
     this.indexedFields = new Set(['_id'])
@@ -218,7 +216,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       if (JSON.stringify(existing) === JSON.stringify(config)) return
     }
 
-    await this.runWithDefault(async (tx) => {
+    await this.runWithDefaultWrite(async (tx) => {
       // 1. 메타데이터 갱신
       const metadata = await this.getDocumentInnerMetadata(tx)
       metadata.indices[name] = [-1, config]
@@ -276,7 +274,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       throw new Error(`Index '${name}' does not exist`)
     }
 
-    await this.runWithDefault(async (tx) => {
+    await this.runWithDefaultWrite(async (tx) => {
       const config = this.registeredIndices.get(name)!
 
       // 1. 메타데이터에서 제거
@@ -434,26 +432,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     }, tx)
   }
 
-  async readLock<T>(fn: () => T): Promise<T> {
-    let lockId: string
-    return this.lock.readLock(async (_lockId) => {
-      lockId = _lockId
-      return await fn()
-    }).finally(() => {
-      this.lock.readUnlock(lockId!)
-    })
-  }
-
-  async writeLock<T>(fn: () => T): Promise<T> {
-    let lockId: string
-    return this.lock.writeLock(async (_lockId) => {
-      lockId = _lockId
-      return await fn()
-    }).finally(() => {
-      this.lock.writeUnlock(lockId!)
-    })
-  }
-
   /**
    * Backfill indices for newly created indices after data was inserted.
    * This method should be called after `init()`.
@@ -461,7 +439,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    * @returns Number of documents that were backfilled
    */
   async backfillIndices(tx?: Transaction): Promise<number> {
-    return this.runWithDefault(async (tx) => {
+    return this.runWithDefaultWrite(async (tx) => {
       // 백필할 데이터가 없거나
       if (this.pendingBackfillFields.length === 0) {
         return 0
@@ -685,7 +663,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     callback: (tx: Transaction) => Promise<void>,
     tx?: Transaction
   ): Promise<void> {
-    await this.runWithDefault(async (tx) => {
+    await this.runWithDefaultWrite(async (tx) => {
       const innerMetadata = await this.getDocumentInnerMetadata(tx)
       const currentVersion = innerMetadata.schemeVersion ?? 0
       if (currentVersion < version) {
@@ -1184,7 +1162,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    * @returns The primary key of the inserted document
    */
   async insertSingleDocument(document: T, tx?: Transaction): Promise<number> {
-    return this.writeLock(() => this.runWithDefault(async (tx) => {
+    return this.runWithDefaultWrite(async (tx) => {
       const { pk: dpk, document: dataplyDocument } = await this.insertDocumentInternal(document, tx)
       const flattenDocument = this.flattenDocument(dataplyDocument)
 
@@ -1214,7 +1192,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         }
       }
       return dataplyDocument._id
-    }, tx))
+    }, tx)
   }
 
   /**
@@ -1224,7 +1202,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    * @returns The primary keys of the inserted documents
    */
   async insertBatchDocuments(documents: T[], tx?: Transaction): Promise<number[]> {
-    return this.writeLock(() => this.runWithDefault(async (tx) => {
+    return this.runWithDefaultWrite(async (tx) => {
       // 1. Prepare Metadata and increment IDs in bulk
       const metadata = await this.getDocumentInnerMetadata(tx)
       const startId = metadata.lastId + 1
@@ -1300,7 +1278,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         }
       }
       return ids
-    }, tx))
+    }, tx)
   }
 
   /**
@@ -1410,7 +1388,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     newRecord: T | ((document: DataplyDocument<T>) => T),
     tx?: Transaction
   ): Promise<number> {
-    return await this.writeLock(() => this.runWithDefault(async (tx) => {
+    return this.runWithDefaultWrite(async (tx) => {
       return this.updateInternal(query, (doc) => {
         const newDoc = typeof newRecord === 'function'
           ? (newRecord as Function)(doc)
@@ -1418,7 +1396,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         // _id 보존
         return { _id: doc._id, ...newDoc } as DataplyDocument<T>
       }, tx)
-    }, tx))
+    }, tx)
   }
 
   /**
@@ -1433,7 +1411,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     newRecord: Partial<DataplyDocument<T>> | ((document: DataplyDocument<T>) => Partial<DataplyDocument<T>>),
     tx?: Transaction
   ): Promise<number> {
-    return this.writeLock(() => this.runWithDefault(async (tx) => {
+    return this.runWithDefaultWrite(async (tx) => {
       return this.updateInternal(query, (doc) => {
         const partialUpdateContent = typeof newRecord === 'function'
           ? (newRecord as Function)(doc)
@@ -1444,7 +1422,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         // 기존 문서 + 부분 업데이트
         return { ...doc, ...finalUpdate } as DataplyDocument<T>
       }, tx)
-    }, tx))
+    }, tx)
   }
 
   /**
@@ -1457,7 +1435,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     query: Partial<DocumentDataplyQuery<T>>,
     tx?: Transaction
   ): Promise<number> {
-    return this.writeLock(() => this.runWithDefault(async (tx) => {
+    return this.runWithDefaultWrite(async (tx) => {
       const pks = await this.getKeys(query)
       let deletedCount = 0
 
@@ -1495,7 +1473,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       }
 
       return deletedCount
-    }, tx))
+    }, tx)
   }
 
   /**
@@ -1508,10 +1486,10 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     query: Partial<DocumentDataplyQuery<T>>,
     tx?: Transaction
   ): Promise<number> {
-    return this.readLock(() => this.runWithDefault(async (tx) => {
+    return this.runWithDefault(async (tx) => {
       const pks = await this.getKeys(query)
       return pks.length
-    }, tx))
+    }, tx)
   }
 
   /**
