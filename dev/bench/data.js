@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772552096566,
+  "lastUpdate": 1772622575127,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -2248,6 +2248,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 93.4,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "0ac12d3b840ee4e2a6230319a7cd26529af0870d",
+          "message": "fix: 범위 기반 쿼리 시, NaN 오류로 인해 비정상적인 결과를 반환할 수 있었던 오류를 수정합니다. wal을 지정하지 않았을 경우, 커밋을 하더라도 데이터베이스에 저장되지 않던 오류를 수정합니다.",
+          "timestamp": "2026-03-04T20:08:34+09:00",
+          "tree_id": "bc63e3539135246d0e9f13501f4e2b2d661ddd4e",
+          "url": "https://github.com/izure1/document-dataply/commit/0ac12d3b840ee4e2a6230319a7cd26529af0870d"
+        },
+        "date": 1772622574231,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2964.79,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 19.97,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 13.85,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 105.13,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3001.87,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 90.03,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 88.6,
             "unit": "ms"
           }
         ]
