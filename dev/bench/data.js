@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772622575127,
+  "lastUpdate": 1772668998034,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -2307,6 +2307,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 88.6,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "427b7bcb5a97fdc51f2d3bc221c3b4b284b7e6f9",
+          "message": "chore: 일부 조건절에서 b+tree의 전체 스캔하던 오류를 수정하고, 전반적인 코드 리팩토링과 성능을 최적화합니다.",
+          "timestamp": "2026-03-05T09:02:04+09:00",
+          "tree_id": "266c256d95ddbdaa63c49d2e609429290d57ce41",
+          "url": "https://github.com/izure1/document-dataply/commit/427b7bcb5a97fdc51f2d3bc221c3b4b284b7e6f9"
+        },
+        "date": 1772668997451,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 3552.85,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 18.24,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 43.06,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 110.22,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 4658.81,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 92.73,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 89.48,
             "unit": "ms"
           }
         ]
