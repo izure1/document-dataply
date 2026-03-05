@@ -212,8 +212,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
     // 이미 동일한 이름의 인덱스가 존재하면 스킵
     if (this.registeredIndices.has(name)) {
-      const existing = this.registeredIndices.get(name)!
-      if (JSON.stringify(existing) === JSON.stringify(config)) return
+      throw new Error(`Index "${name}" already exists.`)
     }
 
     await this.runWithDefaultWrite(async (tx) => {
@@ -226,7 +225,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       // 2. registeredIndices / fieldToIndices / indexedFields 갱신
       this.registeredIndices.set(name, config)
       const fields = this.getFieldsFromConfig(config)
-      for (const field of fields) {
+      for (let i = 0; i < fields.length; i++) {
+        const field = fields[i]
         this.indexedFields.add(field)
         if (!this.fieldToIndices.has(field)) {
           this.fieldToIndices.set(field, [])
@@ -263,7 +263,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    */
   async dropIndex(name: string, tx?: Transaction): Promise<void> {
     if (name === '_id') {
-      throw new Error('Cannot drop the _id index')
+      throw new Error('Cannot drop the "_id" index.')
     }
     if (!this._initialized) {
       // Pre-init: just remove from pending
@@ -271,7 +271,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       return
     }
     if (!this.registeredIndices.has(name)) {
-      throw new Error(`Index '${name}' does not exist`)
+      throw new Error(`Index "${name}" does not exist.`)
     }
 
     await this.runWithDefaultWrite(async (tx) => {
@@ -288,7 +288,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
       // 3. fieldToIndices / indexedFields 갱신
       const fields = this.getFieldsFromConfig(config)
-      for (const field of fields) {
+      for (let i = 0; i < fields.length; i++) {
+        const field = fields[i]
         const indexNames = this.fieldToIndices.get(field)
         if (indexNames) {
           const filtered = indexNames.filter(n => n !== name)
@@ -325,7 +326,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       if (!Array.isArray(option.fields) || option.fields.length === 0) {
         throw new Error('btree index requires a non-empty "fields" array')
       }
-      for (let i = 0; i < option.fields.length; i++) {
+      for (let i = 0, len = option.fields.length; i < len; i++) {
         if (
           typeof option.fields[i] !== 'string' ||
           (option.fields[i] as string).length === 0
@@ -1600,9 +1601,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   ): AsyncGenerator<DataplyDocument<T>> {
     // others 중 FTS가 아닌 일반 조건만 verify 대상으로 분리
     const verifyOthers = others.filter(o => !o.isFtsMatch)
+    const isFts = ftsConditions.length > 0
+    const isCompositeVerify = compositeVerifyConditions.length > 0
+    const isVerifyOthers = verifyOthers.length > 0
 
     let currentChunkSize = initialChunkSize
     let chunk: number[] = []
+    let chunkSize = 0
     let dropped = 0
 
     const processChunk = async (pks: number[]) => {
@@ -1617,16 +1622,16 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         chunkTotalSize += s.length * 2
 
         // FTS 검증
-        if (ftsConditions.length > 0 && !this.verifyFts(doc, ftsConditions)) continue
+        if (isFts && !this.verifyFts(doc, ftsConditions)) continue
 
         // 복합 인덱스 non-primary 필드 검증
         if (
-          compositeVerifyConditions.length > 0 &&
+          isCompositeVerify &&
           this.verifyCompositeConditions(doc, compositeVerifyConditions) === false
         ) continue
 
         // others 조건 검증: 각 필드의 값을 tree.verify()로 확인
-        if (verifyOthers.length > 0) {
+        if (isVerifyOthers) {
           const flatDoc = this.flattenDocument(doc)
           let passed = true
           for (let k = 0, kLen = verifyOthers.length; k < kLen; k++) {
@@ -1658,16 +1663,18 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         continue
       }
       chunk.push(pk)
-      if (chunk.length >= currentChunkSize) {
+      chunkSize++
+      if (chunkSize >= currentChunkSize) {
         const docs = await processChunk(chunk)
-        for (let j = 0; j < docs.length; j++) yield docs[j]
+        for (let j = 0, dLen = docs.length; j < dLen; j++) yield docs[j]
         chunk = []
+        chunkSize = 0
       }
     }
 
-    if (chunk.length > 0) {
+    if (chunkSize > 0) {
       const docs = await processChunk(chunk)
-      for (let j = 0; j < docs.length; j++) yield docs[j]
+      for (let j = 0, dLen = docs.length; j < dLen; j++) yield docs[j]
     }
   }
 
