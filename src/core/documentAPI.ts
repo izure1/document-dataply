@@ -486,7 +486,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         if (!doc) continue
         const flatDoc = this.flattenDocument(doc)
 
-        for (const indexName of backfillTargets) {
+        for (let i = 0, len = backfillTargets.length; i < len; i++) {
+          const indexName = backfillTargets[i]
           if (!(indexName in indexTxMap)) continue
 
           const config = this.registeredIndices.get(indexName)
@@ -817,7 +818,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         let startOperator: string | null = null
         let endOperator: string | null = null
 
-        for (const field of config.fields) {
+        for (let i = 0, len = config.fields.length; i < len; i++) {
+          const field = config.fields[i]
           if (!queryFields.has(field)) {
             // 이후의 필드는 연속된(프리픽스) 검색에 활용될 수 없음
             isConsecutive = false
@@ -934,7 +936,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         // orderBy 필드가 이 인덱스로 정렬을 보장하는지 확인
         let isIndexOrderSupported = false
         if (orderByField) {
-          for (const field of config.fields) {
+          for (let i = 0, len = config.fields.length; i < len; i++) {
+            const field = config.fields[i]
             if (field === orderByField) {
               isIndexOrderSupported = true
               break
@@ -1018,7 +1021,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
     // 드라이버의 복합 인덱스 non-primary 필드 조건
     const compositeVerifyConditions: { field: string, condition: any }[] = []
-    for (const field of driver.compositeVerifyFields) {
+    for (let i = 0, len = driver.compositeVerifyFields.length; i < len; i++) {
+      const field = driver.compositeVerifyFields[i]
       if (query[field]) {
         compositeVerifyConditions.push({ field, condition: query[field] })
       }
