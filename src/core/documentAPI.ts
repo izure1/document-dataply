@@ -931,7 +931,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     candidates.sort((a, b) => b.score - a.score)
 
     const driver = candidates[0]
-    const others = candidates.slice(1)
+    const others = candidates.slice(1).filter(c => c.field !== driver.field)
 
     // 드라이버의 복합 인덱스 non-primary 필드 조건
     const compositeVerifyConditions: { field: string, condition: any }[] = []
