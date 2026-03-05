@@ -801,14 +801,21 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         // 기본 필드가 쿼리에 없으면 이 인덱스는 사용할 수 없음
         if (!queryFields.has(primaryField)) continue
 
-        const condition = query[primaryField] as Partial<DocumentDataplyCondition<U>>
         const treeTx = await tree.createTransaction()
 
-        // 점수 계산
+        // 복합 인덱스의 B-Tree 탐색 바운드 좁히기
+        const builtCondition: Record<string, any> = {}
         let score = 0
         let isConsecutive = true
         const coveredFields: string[] = []
         const compositeVerifyFields: string[] = []
+
+        // Start/End 바운드용 배열
+        const startValues: any[] = []
+        const endValues: any[] = []
+
+        let startOperator: string | null = null
+        let endOperator: string | null = null
 
         for (const field of config.fields) {
           if (!queryFields.has(field)) {
@@ -821,25 +828,67 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           if (field !== primaryField) {
             compositeVerifyFields.push(field)
           }
-          score += 1 // 기본적으로 필드가 커버되면 1점 가산
+          score += 1 // 필드가 커버되면 1점 가산
 
           if (isConsecutive) {
             const cond = query[field] as any
             if (cond !== undefined) {
-              if (typeof cond !== 'object' || cond === null) {
-                score += 100 // direct value = equal
+              if (typeof cond !== 'object' || cond === null) { // direct value (=equal)
+                score += 100
+                startValues.push(cond)
+                endValues.push(cond)
+                startOperator = 'primaryGte'
+                endOperator = 'primaryLte'
               }
               else if ('primaryEqual' in cond || 'equal' in cond) {
+                const val = cond.primaryEqual?.v ?? cond.equal?.v ?? cond.primaryEqual ?? cond.equal
                 score += 100
+                startValues.push(val)
+                endValues.push(val)
+                startOperator = 'primaryGte'
+                endOperator = 'primaryLte'
               }
-              else if (
-                'primaryGte' in cond || 'primaryLte' in cond ||
-                'primaryGt' in cond || 'primaryLt' in cond ||
-                'gte' in cond || 'lte' in cond ||
-                'gt' in cond || 'lt' in cond
-              ) {
+              // 범위 연산의 경우: 해당 값을 바운드에 넣고 이후 필드는 BTree Prefix 조건으로 사용안함
+              else if ('primaryGte' in cond || 'gte' in cond) {
+                const val = cond.primaryGte?.v ?? cond.gte?.v ?? cond.primaryGte ?? cond.gte
                 score += 50
-                isConsecutive = false // 범위 검색 이후의 필드는 BTree prefix 검색에 활용 불가
+                isConsecutive = false
+                startValues.push(val)
+                startOperator = 'primaryGte'
+                // 상한선은 이전까지의 값으로 열어둠
+                if (endValues.length > 0) {
+                  endOperator = 'primaryLte'
+                }
+              }
+              else if ('primaryGt' in cond || 'gt' in cond) {
+                const val = cond.primaryGt?.v ?? cond.gt?.v ?? cond.primaryGt ?? cond.gt
+                score += 50
+                isConsecutive = false
+                startValues.push(val)
+                startOperator = 'primaryGt'
+                if (endValues.length > 0) {
+                  endOperator = 'primaryLte'
+                }
+              }
+              else if ('primaryLte' in cond || 'lte' in cond) {
+                const val = cond.primaryLte?.v ?? cond.lte?.v ?? cond.primaryLte ?? cond.lte
+                score += 50
+                isConsecutive = false
+                endValues.push(val)
+                endOperator = 'primaryLte'
+                if (startValues.length > 0) {
+                  startOperator = 'primaryGte'
+                }
+              }
+              else if ('primaryLt' in cond || 'lt' in cond) {
+                const val = cond.primaryLt?.v ?? cond.lt?.v ?? cond.primaryLt ?? cond.lt
+                score += 50
+                isConsecutive = false
+                endValues.push(val)
+                endOperator = 'primaryLt'
+                if (startValues.length > 0) {
+                  startOperator = 'primaryGte'
+                }
               }
               else if ('primaryOr' in cond || 'or' in cond) {
                 score += 20
@@ -854,6 +903,31 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
                 isConsecutive = false
               }
             }
+          }
+        }
+
+        // 구축된 Start/End 바운드를 tree Condition으로 병합
+        if (coveredFields.length === 1 && config.fields.length === 1) { // 단일 인덱스면 원래 condition 포맷 유지
+          Object.assign(builtCondition, query[primaryField])
+        }
+        else {
+          // 복합 인덱스면 v를 배열 형태로 전달
+          if (startOperator && startValues.length > 0) {
+            builtCondition[startOperator] = { v: startValues.length === 1 ? startValues[0] : startValues }
+          }
+          if (endOperator && endValues.length > 0) {
+            // equal 조건만 계속된 경우 startOperator와 endOperator가 같은 배열을 가리킴. 최적화를 위해 primaryEqual 하나로 변경 가능
+            if (startOperator && startValues.length === endValues.length && startValues.every((val, i) => val === endValues[i])) {
+              delete builtCondition[startOperator]
+              builtCondition['primaryEqual'] = { v: startValues.length === 1 ? startValues[0] : startValues }
+            }
+            else {
+              builtCondition[endOperator] = { v: endValues.length === 1 ? endValues[0] : endValues }
+            }
+          }
+          // fallback (아무 바운드도 잡히지 않은 특수 경우, 예: or만 있는 경우)
+          if (Object.keys(builtCondition).length === 0) {
+            Object.assign(builtCondition, query[primaryField] || {})
           }
         }
 
@@ -881,7 +955,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
 
         candidates.push({
           tree: treeTx as unknown as BPTreeAsync<string | number, V>,
-          condition,
+          condition: builtCondition as any,
           field: primaryField,
           indexName,
           isFtsMatch: false,
@@ -927,8 +1001,17 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       return null
     }
 
-    // 점수 기준 내림차순 정렬
-    candidates.sort((a, b) => b.score - a.score)
+    // 점수 기준 내림차순 정렬, 동점일 경우 필드 개수가 적은 인덱스를 선호
+    candidates.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+
+      const aConfig = this.registeredIndices.get(a.indexName)
+      const bConfig = this.registeredIndices.get(b.indexName)
+      const aFieldCount = aConfig ? (Array.isArray(aConfig.fields) ? aConfig.fields.length : 1) : 0
+      const bFieldCount = bConfig ? (Array.isArray(bConfig.fields) ? bConfig.fields.length : 1) : 0
+
+      return aFieldCount - bFieldCount
+    })
 
     const driver = candidates[0]
     const others = candidates.slice(1).filter(c => c.field !== driver.field)
