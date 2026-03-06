@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772745652722,
+  "lastUpdate": 1772838693889,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -2484,6 +2484,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 91.69,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "2153a870a22b7567251f168897460e6a90e1815b",
+          "message": "chore: dataply 종속성 라이브러리 성능 최적화와 getSelectivityCandidate 메서드를 리팩토링합니다.",
+          "timestamp": "2026-03-07T08:10:13+09:00",
+          "tree_id": "13f90d5c41dac08d7b3df5fad7d05a3b7c069ecc",
+          "url": "https://github.com/izure1/document-dataply/commit/2153a870a22b7567251f168897460e6a90e1815b"
+        },
+        "date": 1772838693467,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 3645.55,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 19.82,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 43.76,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 109.27,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 4804.64,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 92.52,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 87.94,
             "unit": "ms"
           }
         ]
