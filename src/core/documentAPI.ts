@@ -1674,6 +1674,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     keysStream: AsyncIterableIterator<number>,
     startIdx: number,
     initialChunkSize: number,
+    limit: number,
     ftsConditions: { field: string, matchTokens: string[] }[],
     compositeVerifyConditions: { field: string, condition: any }[],
     others: {
@@ -1691,8 +1692,9 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     const isFts = ftsConditions.length > 0
     const isCompositeVerify = compositeVerifyConditions.length > 0
     const isVerifyOthers = verifyOthers.length > 0
+    const isInfiniteLimit = isFinite(limit)
 
-    let currentChunkSize = initialChunkSize
+    let currentChunkSize = isInfiniteLimit ? initialChunkSize : limit
     let chunk: number[] = []
     let chunkSize = 0
     let dropped = 0
@@ -1740,7 +1742,9 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         docs.push(doc)
       }
 
-      currentChunkSize = this.adjustChunkSize(currentChunkSize, chunkTotalSize)
+      if (isInfiniteLimit) {
+        currentChunkSize = this.adjustChunkSize(currentChunkSize, chunkTotalSize)
+      }
       return docs
     }
 
@@ -1833,6 +1837,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       const driverResult = await self.getDriverKeys(query, orderByField, sortOrder)
       if (!driverResult) return
       const { keysStream, others, compositeVerifyConditions, isDriverOrderByField, rollback } = driverResult
+      const initialChunkSize = self.options.pageSize
 
       try {
         // ────────────────────────────────────────────────
@@ -1860,7 +1865,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           for await (const doc of self.processChunkedKeysWithVerify(
             keysStream,
             0,
-            self.options.pageSize,
+            initialChunkSize,
+            limit,
             ftsConditions,
             compositeVerifyConditions,
             others,
@@ -1916,7 +1922,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
           for await (const doc of self.processChunkedKeysWithVerify(
             keysStream,
             startIdx,
-            self.options.pageSize,
+            initialChunkSize,
+            limit,
             ftsConditions,
             compositeVerifyConditions,
             others,
