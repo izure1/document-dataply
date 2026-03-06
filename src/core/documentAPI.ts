@@ -726,6 +726,253 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   }
 
   /**
+   * B-Tree 타입 인덱스의 선택도를 평가하고 트리에 부여할 조건을 산출합니다.
+   * 필드 매칭 여부를 검사하고, 연속된(Prefix) 조건에 대해 점수를 부여하며 Start/End 바운드를 구성합니다.
+   * 
+   * @param indexName 평가할 인덱스의 이름 (예: idx_nickname_createdat)
+   * @param config 등록된 인덱스의 설정 객체
+   * @param query 쿼리 객체
+   * @param queryFields 쿼리에 포함된 필드 목록 집합
+   * @param treeTx 조회를 수행할 B-Tree 트랜잭션 객체
+   * @param orderByField 정렬에 사용할 필드명 (옵션)
+   * @returns B-Tree 인덱스 후보 정보 (조건, 점수, 커버된 필드 등), 적합하지 않으면 null
+   */
+  private evaluateBTreeCandidate<
+    U extends Partial<DocumentDataplyQuery<T>>,
+    V extends DataplyTreeValue<U>
+  >(
+    indexName: string,
+    config: any,
+    query: Partial<DocumentDataplyQuery<V>>,
+    queryFields: Set<string>,
+    treeTx: BPTreeAsync<string | number, V>,
+    orderByField?: string
+  ) {
+    const primaryField = config.fields[0]
+    // 인덱스의 첫 번째 필드가 쿼리에 포함되어 있지 않으면 이 인덱스로 트리 탐색 불가
+    if (!queryFields.has(primaryField)) return null
+
+    const builtCondition: Record<string, any> = {}
+    let score = 0
+    let isConsecutive = true // 복합 인덱스 필드들이 연속적으로 매칭되는지 추적
+    const coveredFields: string[] = []
+    
+    // B-Tree 트래버스를 위한 탐색 구간(Bound) 설정용 배열
+    const compositeVerifyFields: string[] = []
+    const startValues: any[] = []
+    const endValues: any[] = []
+    let startOperator: string | null = null
+    let endOperator: string | null = null
+
+    // 인덱스에 정의된 필드 순서대로 쿼리 조건을 확인하여 점수 산출
+    for (let i = 0, len = config.fields.length; i < len; i++) {
+      const field = config.fields[i]
+      
+      // 해당 필드가 쿼리에 없다면, 이후 필드들은 Prefix 규칙에 의해 트리를 좁히는 데 사용할 수 없음
+      if (!queryFields.has(field)) {
+        isConsecutive = false
+        continue
+      }
+      
+      coveredFields.push(field)
+      score += 1 // 기본적으로 조건 매칭 하나당 1점 부여
+      
+      if (isConsecutive) {
+        const cond = query[field as keyof typeof query] as any
+        if (cond !== undefined) {
+          let isBounded = false // Tree Bound 연산으로 완벽히 커버되었는지를 나타내는 플래그
+          
+          // 조건 값이 객체가 아니거나 (직접 매칭) equal 연산인 경우 (동일값 검색)
+          if (typeof cond !== 'object' || cond === null) {
+            score += 100
+            startValues.push(cond)
+            endValues.push(cond)
+            startOperator = 'primaryGte'
+            endOperator = 'primaryLte'
+            isBounded = true
+          }
+          else if ('primaryEqual' in cond || 'equal' in cond) {
+            const val = cond.primaryEqual?.v ?? cond.equal?.v ?? cond.primaryEqual ?? cond.equal
+            score += 100
+            startValues.push(val)
+            endValues.push(val)
+            startOperator = 'primaryGte'
+            endOperator = 'primaryLte'
+            isBounded = true
+          }
+          // 부등호 연산(범위 검색)이 등장하면, 그 이후의 필드들은 Prefix 조건으로 묶일 수 없음
+          else if ('primaryGte' in cond || 'gte' in cond) {
+            const val = cond.primaryGte?.v ?? cond.gte?.v ?? cond.primaryGte ?? cond.gte
+            score += 50
+            isConsecutive = false // 연속성 단절점
+            startValues.push(val)
+            startOperator = 'primaryGte'
+            if (endValues.length > 0) endOperator = 'primaryLte'
+            isBounded = true
+          }
+          else if ('primaryGt' in cond || 'gt' in cond) {
+            const val = cond.primaryGt?.v ?? cond.gt?.v ?? cond.primaryGt ?? cond.gt
+            score += 50
+            isConsecutive = false
+            startValues.push(val)
+            startOperator = 'primaryGt'
+            if (endValues.length > 0) endOperator = 'primaryLte'
+            isBounded = true
+          }
+          else if ('primaryLte' in cond || 'lte' in cond) {
+            const val = cond.primaryLte?.v ?? cond.lte?.v ?? cond.primaryLte ?? cond.lte
+            score += 50
+            isConsecutive = false
+            endValues.push(val)
+            endOperator = 'primaryLte'
+            if (startValues.length > 0) startOperator = 'primaryGte'
+            isBounded = true
+          }
+          else if ('primaryLt' in cond || 'lt' in cond) {
+            const val = cond.primaryLt?.v ?? cond.lt?.v ?? cond.primaryLt ?? cond.lt
+            score += 50
+            isConsecutive = false
+            endValues.push(val)
+            endOperator = 'primaryLt'
+            if (startValues.length > 0) startOperator = 'primaryGte'
+            isBounded = true
+          }
+          // OR, LIKE 등 Tree Bound로 변환할 수 없는 복잡한 조건들
+          else if ('primaryOr' in cond || 'or' in cond) {
+            score += 20
+            isConsecutive = false
+          }
+          else if ('like' in cond) {
+            score += 15
+            isConsecutive = false
+          }
+          else {
+            score += 10
+            isConsecutive = false
+          }
+          
+          // Tree Bound로 완전히 걸러내지 못하는 조건이라면(예: like), 메모리상 재검증 과정에 추가함
+          if (!isBounded && field !== primaryField) {
+            compositeVerifyFields.push(field)
+          }
+        }
+      } else {
+        // 프리픽스 연속성이 끊긴 뒤의 쿼리 필드는 모두 메모리 재검증 대상
+        if (field !== primaryField) {
+          compositeVerifyFields.push(field)
+        }
+      }
+    }
+
+    // 분석을 바탕으로 하여 B-Tree 트리 탐색을 위한 최종 Bound Condition 객체를 생성
+    if (coveredFields.length === 1 && config.fields.length === 1) {
+      // 단일 인덱스인 경우 쿼리의 포맷 구조체 그대로를 바인딩
+      Object.assign(builtCondition, query[primaryField as keyof typeof query])
+    }
+    else {
+      // 복합 인덱스 바운드 결합
+      if (startOperator && startValues.length > 0) {
+        builtCondition[startOperator] = { v: startValues.length === 1 ? startValues[0] : startValues }
+      }
+      if (endOperator && endValues.length > 0) {
+        // start와 end가 배열 전체에 걸쳐 완벽히 일치하면 primaryEqual로 단일화 (최적화)
+        if (startOperator && startValues.length === endValues.length && startValues.every((val: any, i: any) => val === endValues[i])) {
+          delete builtCondition[startOperator]
+          builtCondition['primaryEqual'] = { v: startValues.length === 1 ? startValues[0] : startValues }
+        }
+        else {
+          builtCondition[endOperator] = { v: endValues.length === 1 ? endValues[0] : endValues }
+        }
+      }
+      // 특수한 연산자만 있어서 바운드가 잡히지 않았을 경우의 Fallback
+      if (Object.keys(builtCondition).length === 0) {
+        Object.assign(builtCondition, query[primaryField as keyof typeof query] || {})
+      }
+    }
+
+    // 정렬(orderBy) 요청을 해당 인덱스가 커버할 수 있는지 검사 (추가 비용 없이 메모리 정렬 없는 빠른 검색 가능 여부 확인)
+    let isIndexOrderSupported = false
+    if (orderByField) {
+      for (let i = 0, len = config.fields.length; i < len; i++) {
+        const field = config.fields[i]
+        if (field === orderByField) {
+          isIndexOrderSupported = true
+          break
+        }
+        const cond = query[field as keyof typeof query] as any
+        let isExactMatch = false
+        if (cond !== undefined) {
+          if (typeof cond !== 'object' || cond === null) isExactMatch = true
+          else if ('primaryEqual' in cond || 'equal' in cond) isExactMatch = true
+        }
+        if (!isExactMatch) break
+      }
+      if (isIndexOrderSupported) {
+        score += 200
+      }
+    }
+
+    return {
+      tree: treeTx,
+      condition: builtCondition as any,
+      field: primaryField,
+      indexName,
+      isFtsMatch: false,
+      score,
+      compositeVerifyFields,
+      coveredFields,
+      isIndexOrderSupported
+    } as const
+  }
+
+  /**
+   * FTS (Full Text Search) 타입 인덱스의 선택도를 평가합니다.
+   * 'match' 연산자가 쿼리에 존재하는지 확인하고, 검색용 토큰으로 분해(tokenize)하여 점수를 매깁니다.
+   * 
+   * @param indexName 평가할 인덱스의 이름
+   * @param config 등록된 인덱스의 설정 객체
+   * @param query 쿼리 객체
+   * @param queryFields 쿼리에 포함된 필드 목록 집합
+   * @param treeTx 조회를 수행할 B-Tree 트랜잭션 객체
+   * @returns FTS 인덱스 후보 정보 (조건, 점수, 분석된 토큰 등), 적합하지 않으면 null
+   */
+  private evaluateFTSCandidate<
+    U extends Partial<DocumentDataplyQuery<T>>,
+    V extends DataplyTreeValue<U>
+  >(
+    indexName: string,
+    config: any,
+    query: Partial<DocumentDataplyQuery<V>>,
+    queryFields: Set<string>,
+    treeTx: BPTreeAsync<string | number, V>
+  ) {
+    const field = config.fields
+    // FTS 인덱스 대상 필드가 쿼리에 포함되지 않았으면 검색에 사용할 수 없음
+    if (!queryFields.has(field)) return null
+
+    const condition = query[field as keyof typeof query] as Partial<DocumentDataplyCondition<U>>
+    // FTS는 반드시 'match' 연산자를 사용해야만 동작함
+    if (!condition || typeof condition !== 'object' || !('match' in condition)) return null
+
+    // 형태소 분석(토크나이징) 설정 가져오기
+    const ftsConfig = this.getFtsConfig(config as any)
+    const matchTokens = ftsConfig ? tokenize((condition as any).match as string, ftsConfig) : []
+
+    return {
+      tree: treeTx,
+      condition: condition as any,
+      field,
+      indexName,
+      isFtsMatch: true,
+      matchTokens,
+      score: 90, // FTS 쿼리는 기본적인 B-Tree 단일 검색(대략 101점)보다는 우선순위를 조금 낮게 가져가도록 90점 부여
+      compositeVerifyFields: [],
+      coveredFields: [field],
+      isIndexOrderSupported: false
+    } as const
+  }
+
+  /**
    * Choose the best index (driver) for the given query.
    * Scores each index based on field coverage and condition type.
    *
@@ -789,6 +1036,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       matchTokens?: string[],
       score: number,
       compositeVerifyFields: string[],
+      coveredFields: string[],
       isIndexOrderSupported: boolean
     }[] = []
 
@@ -797,198 +1045,27 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       if (!tree) continue
 
       if (config.type === 'btree') {
-        const primaryField = config.fields[0]
-
-        // 기본 필드가 쿼리에 없으면 이 인덱스는 사용할 수 없음
-        if (!queryFields.has(primaryField)) continue
-
         const treeTx = await tree.createTransaction()
-
-        // 복합 인덱스의 B-Tree 탐색 바운드 좁히기
-        const builtCondition: Record<string, any> = {}
-        let score = 0
-        let isConsecutive = true
-        const coveredFields: string[] = []
-        const compositeVerifyFields: string[] = []
-
-        // Start/End 바운드용 배열
-        const startValues: any[] = []
-        const endValues: any[] = []
-
-        let startOperator: string | null = null
-        let endOperator: string | null = null
-
-        for (let i = 0, len = config.fields.length; i < len; i++) {
-          const field = config.fields[i]
-          if (!queryFields.has(field)) {
-            // 이후의 필드는 연속된(프리픽스) 검색에 활용될 수 없음
-            isConsecutive = false
-            continue
-          }
-
-          coveredFields.push(field)
-          if (field !== primaryField) {
-            compositeVerifyFields.push(field)
-          }
-          score += 1 // 필드가 커버되면 1점 가산
-
-          if (isConsecutive) {
-            const cond = query[field] as any
-            if (cond !== undefined) {
-              if (typeof cond !== 'object' || cond === null) { // direct value (=equal)
-                score += 100
-                startValues.push(cond)
-                endValues.push(cond)
-                startOperator = 'primaryGte'
-                endOperator = 'primaryLte'
-              }
-              else if ('primaryEqual' in cond || 'equal' in cond) {
-                const val = cond.primaryEqual?.v ?? cond.equal?.v ?? cond.primaryEqual ?? cond.equal
-                score += 100
-                startValues.push(val)
-                endValues.push(val)
-                startOperator = 'primaryGte'
-                endOperator = 'primaryLte'
-              }
-              // 범위 연산의 경우: 해당 값을 바운드에 넣고 이후 필드는 BTree Prefix 조건으로 사용안함
-              else if ('primaryGte' in cond || 'gte' in cond) {
-                const val = cond.primaryGte?.v ?? cond.gte?.v ?? cond.primaryGte ?? cond.gte
-                score += 50
-                isConsecutive = false
-                startValues.push(val)
-                startOperator = 'primaryGte'
-                // 상한선은 이전까지의 값으로 열어둠
-                if (endValues.length > 0) {
-                  endOperator = 'primaryLte'
-                }
-              }
-              else if ('primaryGt' in cond || 'gt' in cond) {
-                const val = cond.primaryGt?.v ?? cond.gt?.v ?? cond.primaryGt ?? cond.gt
-                score += 50
-                isConsecutive = false
-                startValues.push(val)
-                startOperator = 'primaryGt'
-                if (endValues.length > 0) {
-                  endOperator = 'primaryLte'
-                }
-              }
-              else if ('primaryLte' in cond || 'lte' in cond) {
-                const val = cond.primaryLte?.v ?? cond.lte?.v ?? cond.primaryLte ?? cond.lte
-                score += 50
-                isConsecutive = false
-                endValues.push(val)
-                endOperator = 'primaryLte'
-                if (startValues.length > 0) {
-                  startOperator = 'primaryGte'
-                }
-              }
-              else if ('primaryLt' in cond || 'lt' in cond) {
-                const val = cond.primaryLt?.v ?? cond.lt?.v ?? cond.primaryLt ?? cond.lt
-                score += 50
-                isConsecutive = false
-                endValues.push(val)
-                endOperator = 'primaryLt'
-                if (startValues.length > 0) {
-                  startOperator = 'primaryGte'
-                }
-              }
-              else if ('primaryOr' in cond || 'or' in cond) {
-                score += 20
-                isConsecutive = false
-              }
-              else if ('like' in cond) {
-                score += 15
-                isConsecutive = false
-              }
-              else {
-                score += 10
-                isConsecutive = false
-              }
-            }
-          }
-        }
-
-        // 구축된 Start/End 바운드를 tree Condition으로 병합
-        if (coveredFields.length === 1 && config.fields.length === 1) { // 단일 인덱스면 원래 condition 포맷 유지
-          Object.assign(builtCondition, query[primaryField])
-        }
-        else {
-          // 복합 인덱스면 v를 배열 형태로 전달
-          if (startOperator && startValues.length > 0) {
-            builtCondition[startOperator] = { v: startValues.length === 1 ? startValues[0] : startValues }
-          }
-          if (endOperator && endValues.length > 0) {
-            // equal 조건만 계속된 경우 startOperator와 endOperator가 같은 배열을 가리킴. 최적화를 위해 primaryEqual 하나로 변경 가능
-            if (startOperator && startValues.length === endValues.length && startValues.every((val, i) => val === endValues[i])) {
-              delete builtCondition[startOperator]
-              builtCondition['primaryEqual'] = { v: startValues.length === 1 ? startValues[0] : startValues }
-            }
-            else {
-              builtCondition[endOperator] = { v: endValues.length === 1 ? endValues[0] : endValues }
-            }
-          }
-          // fallback (아무 바운드도 잡히지 않은 특수 경우, 예: or만 있는 경우)
-          if (Object.keys(builtCondition).length === 0) {
-            Object.assign(builtCondition, query[primaryField] || {})
-          }
-        }
-
-        // orderBy 필드가 이 인덱스로 정렬을 보장하는지 확인
-        let isIndexOrderSupported = false
-        if (orderByField) {
-          for (let i = 0, len = config.fields.length; i < len; i++) {
-            const field = config.fields[i]
-            if (field === orderByField) {
-              isIndexOrderSupported = true
-              break
-            }
-            // 현재 확인하는 필드가 단일값(equal)매치인지 확인, 아니면 그 다음 필드는 정렬 보장 불가
-            const cond = query[field] as any
-            let isExactMatch = false
-            if (cond !== undefined) {
-              if (typeof cond !== 'object' || cond === null) isExactMatch = true
-              else if ('primaryEqual' in cond || 'equal' in cond) isExactMatch = true
-            }
-            if (!isExactMatch) break
-          }
-          if (isIndexOrderSupported) {
-            score += 200
-          }
-        }
-
-        candidates.push({
-          tree: treeTx as unknown as BPTreeAsync<string | number, V>,
-          condition: builtCondition as any,
-          field: primaryField,
+        const candidate = this.evaluateBTreeCandidate(
           indexName,
-          isFtsMatch: false,
-          score,
-          compositeVerifyFields,
-          isIndexOrderSupported
-        })
+          config as any,
+          query,
+          queryFields,
+          treeTx as unknown as BPTreeAsync<string | number, V>,
+          orderByField
+        )
+        if (candidate) candidates.push(candidate as any)
       }
       else if (config.type === 'fts') {
-        const field = config.fields
-        if (!queryFields.has(field)) continue
-
-        const condition = query[field] as Partial<DocumentDataplyCondition<U>>
-        if (!condition || typeof condition !== 'object' || !('match' in condition)) continue
-
         const treeTx = await tree.createTransaction()
-        const ftsConfig = this.getFtsConfig(config)
-        const matchTokens = ftsConfig ? tokenize((condition as any).match as string, ftsConfig) : []
-
-        candidates.push({
-          tree: treeTx as unknown as BPTreeAsync<string | number, V>,
-          condition,
-          field,
+        const candidate = this.evaluateFTSCandidate(
           indexName,
-          isFtsMatch: true,
-          matchTokens,
-          score: 90,
-          compositeVerifyFields: [],
-          isIndexOrderSupported: false
-        })
+          config as any,
+          query,
+          queryFields,
+          treeTx as unknown as BPTreeAsync<string | number, V>
+        )
+        if (candidate) candidates.push(candidate as any)
       }
     }
 
@@ -1017,7 +1094,8 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     })
 
     const driver = candidates[0]
-    const others = candidates.slice(1).filter(c => c.field !== driver.field)
+    const driverCoveredFields = new Set(driver.coveredFields)
+    const others = candidates.slice(1).filter(c => !driverCoveredFields.has(c.field))
 
     // 드라이버의 복합 인덱스 non-primary 필드 조건
     const compositeVerifyConditions: { field: string, condition: any }[] = []
