@@ -756,7 +756,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     let score = 0
     let isConsecutive = true // 복합 인덱스 필드들이 연속적으로 매칭되는지 추적
     const coveredFields: string[] = []
-    
+
     // B-Tree 트래버스를 위한 탐색 구간(Bound) 설정용 배열
     const compositeVerifyFields: string[] = []
     const startValues: any[] = []
@@ -767,21 +767,21 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     // 인덱스에 정의된 필드 순서대로 쿼리 조건을 확인하여 점수 산출
     for (let i = 0, len = config.fields.length; i < len; i++) {
       const field = config.fields[i]
-      
+
       // 해당 필드가 쿼리에 없다면, 이후 필드들은 Prefix 규칙에 의해 트리를 좁히는 데 사용할 수 없음
       if (!queryFields.has(field)) {
         isConsecutive = false
         continue
       }
-      
+
       coveredFields.push(field)
       score += 1 // 기본적으로 조건 매칭 하나당 1점 부여
-      
+
       if (isConsecutive) {
         const cond = query[field as keyof typeof query] as any
         if (cond !== undefined) {
           let isBounded = false // Tree Bound 연산으로 완벽히 커버되었는지를 나타내는 플래그
-          
+
           // 조건 값이 객체가 아니거나 (직접 매칭) equal 연산인 경우 (동일값 검색)
           if (typeof cond !== 'object' || cond === null) {
             score += 100
@@ -850,7 +850,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
             score += 10
             isConsecutive = false
           }
-          
+
           // Tree Bound로 완전히 걸러내지 못하는 조건이라면(예: like), 메모리상 재검증 과정에 추가함
           if (!isBounded && field !== primaryField) {
             compositeVerifyFields.push(field)
@@ -1944,7 +1944,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
             keysStream,
             0,
             initialChunkSize,
-            limit,
+            Infinity,
             ftsConditions,
             compositeVerifyConditions,
             others,
