@@ -10,9 +10,9 @@ This document covers advanced features and performance optimization tips for usi
 For more details, see the [Query Guide (QUERY.md)](./QUERY.md).
 
 ## 2. Memory Management (Stream vs drain)
-
+ 
 - **Small Datasets**: Using `drain()` to retrieve an array is convenient.
-- **Large Datasets**: Use `stream` to minimize memory usage.
+- **Large Datasets**: Use `stream()` to minimize memory usage.
 
 For more details, see the [Stream Guide (STREAM.md)](./STREAM.md).
 

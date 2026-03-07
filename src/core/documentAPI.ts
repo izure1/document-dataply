@@ -1860,7 +1860,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     options: DocumentDataplyQueryOptions = {},
     tx?: Transaction
   ): {
-    stream: AsyncIterableIterator<DataplyDocument<T>>
+    stream: () => AsyncIterableIterator<DataplyDocument<T>>
     drain: () => Promise<DataplyDocument<T>[]>
   } {
     // 런타임 검증: 쿼리 필드가 인덱스된 필드인지 확인
@@ -1885,7 +1885,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     } = options
 
     const self = this
-    const stream = this.streamWithDefault(async function* (tx) {
+    const stream = () => this.streamWithDefault(async function* (tx) {
       // FTS(전문 검색) 조건 수집: match 연산자가 있는 필드의 토큰을 추출
       const ftsConditions: { field: string, matchTokens: string[] }[] = []
       for (const field in query) {
@@ -2025,7 +2025,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     // drain: 스트림의 모든 결과를 배열로 수집하여 반환하는 편의 함수
     const drain = async () => {
       const result: DataplyDocument<T>[] = []
-      for await (const document of stream) {
+      for await (const document of stream()) {
         result.push(document)
       }
       return result

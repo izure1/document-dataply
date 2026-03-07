@@ -212,7 +212,7 @@ export class DocumentDataply<T extends DocumentJSON> {
     options: DocumentDataplyQueryOptions = {},
     tx?: Transaction
   ): {
-    stream: AsyncIterableIterator<DataplyDocument<T>>
+    stream: () => AsyncIterableIterator<DataplyDocument<T>>
     drain: () => Promise<DataplyDocument<T>[]>
   } {
     return this.api.selectDocuments(query, options, tx)

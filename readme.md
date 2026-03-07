@@ -85,7 +85,7 @@ async function main() {
   // Get all results
   const allResults = await query.drain();
   // Or iterate through results
-  for await (const doc of query.stream) {
+  for await (const doc of query.stream()) {
     console.log(doc);
   }
 
@@ -188,7 +188,7 @@ For more information on performance optimization and advanced features, see [TIP
 
 - **Query Optimization**: Automatic index selection for maximum performance.
 - **Sorting and Pagination**: Detailed usage of `limit`, `orderBy`, and `sortOrder`.
-- **Memory Management**: When to use `stream` vs `drain()`.
+- **Memory Management**: When to use `stream()` vs `drain()`.
 - **Performance**: Optimizing bulk data insertion using `insertBatch`.
 - **Indexing Policies**: Dynamic index creation and automatic backfilling.
 - **Composite Indexes**: Indexing multiple fields for complex queries.
@@ -226,7 +226,7 @@ Inserts multiple documents efficiently. Returns an array of `_ids` (`number[]`).
 ### `db.select(query, options?, tx?)`
 Searches for documents matching the query. Passing an empty object (`{}`) as the `query` retrieves all documents.
 Returns an object `{ stream, drain }`.
-- `stream`: An async iterator to traverse results one by one.
+- `stream()`: An async iterator to traverse results one by one.
 - `drain()`: A promise that resolves to an array of all matching documents.
 
 ### `db.partialUpdate(query, newFields, tx?)`

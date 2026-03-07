@@ -6,7 +6,7 @@
 
 ## 1. Core Mechanism: Stream (Async Iterator)
 
-The most recommended way to retrieve data is through **`stream`**. This method does not load all data into memory at once; instead, it reads documents asynchronously one by one as needed.
+The most recommended way to retrieve data is through **`stream()`**. This method does not load all data into memory at once; instead, it reads documents asynchronously one by one as needed.
 
 ### Key Advantages
 - **Extremely Low Memory Usage**: Even with tens of thousands of results, only the document currently being processed is held in memory.
@@ -23,7 +23,7 @@ The most recommended way to retrieve data is through **`stream`**. This method d
 > const query = db.select({ status: 'active' }, { orderBy: 'status' });
 > 
 > // This stream starts immediately with minimal memory overhead.
-> for await (const doc of query.stream) { ... }
+> for await (const doc of query.stream()) { ... }
 > ```
 
 ### Usage Example
@@ -32,7 +32,7 @@ You can easily use the `for await...of` syntax to iterate through results as if 
 ```typescript
 const query = db.select({ status: 'active' });
 
-for await (const doc of query.stream) {
+for await (const doc of query.stream()) {
   // Only one document is loaded in memory at a time
   console.log(`ID: ${doc._id}, Name: ${doc.name}`);
   await processData(doc);
@@ -47,10 +47,10 @@ If you prefer to receive all results at once in a standard array format, use the
 
 ### Characteristics and Limitations
 - **Convenience**: Since the return value is an array, you can immediately use standard JavaScript array methods like `.map()`, `.filter()`, and `.reduce()`.
-- **Precaution**: If the result set is very large, the application may terminate due to an Out of Memory (OOM) error. Always prefer `stream` when the amount of data is uncertain.
+- **Precaution**: If the result set is very large, the application may terminate due to an Out of Memory (OOM) error. Always prefer `stream()` when the amount of data is uncertain.
 
 ### Internal Implementation
-`drain()` is not a completely separate logic. Internally, it is implemented to iterate through the `stream` described above until the end, collecting all results into an array. Therefore, it benefits equally from the page loading and cache optimizations described below.
+`drain()` is not a completely separate logic. Internally, it is implemented to iterate through the `stream()` described above until the end, collecting all results into an array. Therefore, it benefits equally from the page loading and cache optimizations described below.
 
 ```typescript
 // Useful for processing small amounts of data
@@ -91,7 +91,7 @@ If you want to use a stream but process data in batches (e.g., sending groups of
 let chunk = [];
 const CHUNK_SIZE = 500;
 
-for await (const doc of db.select({ type: 'export' }).stream) {
+for await (const doc of db.select({ type: 'export' }).stream()) {
   chunk.push(doc);
   if (chunk.length >= CHUNK_SIZE) {
     await sendBatchToCloud(chunk);
@@ -107,5 +107,5 @@ if (chunk.length > 0) await sendBatchToCloud(chunk);
 
 ## 5. Conclusion: Choosing the Right Method
 
-- **Always consider `stream` first**: It is optimal for server-side environments where the data volume is unpredictable or where memory efficiency is critical.
+- **Always consider `stream()` first**: It is optimal for server-side environments where the data volume is unpredictable or where memory efficiency is critical.
 - **Use `drain()` only for small datasets**: Choose this method when the result set is guaranteed to be small (e.g., a few hundred rows) and quick implementation is preferred.
