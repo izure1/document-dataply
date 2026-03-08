@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772970193759,
+  "lastUpdate": 1772970655624,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -2838,6 +2838,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 98.63,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "e66e97904e00ad4e79a59a24be2e6744c65830c0",
+          "message": "performance: 옵션을 제거하여 localeCompare와 동일한 환경을 구성하여 성능 최적화 재검증",
+          "timestamp": "2026-03-08T20:49:25+09:00",
+          "tree_id": "d00195af34d4582f47b296b8d72ec69a529e0f9c",
+          "url": "https://github.com/izure1/document-dataply/commit/e66e97904e00ad4e79a59a24be2e6744c65830c0"
+        },
+        "date": 1772970654848,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 7228.79,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 17.51,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 43.63,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 107.02,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 5145.4,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 102.25,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 105.51,
             "unit": "ms"
           }
         ]
