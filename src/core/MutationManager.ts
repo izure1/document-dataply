@@ -33,12 +33,6 @@ export class MutationManager<T extends DocumentJSON> {
     }
   }
 
-  /**
-   * Insert a document into the database
-   * @param document The document to insert
-   * @param tx The transaction to use
-   * @returns The primary key of the inserted document
-   */
   async insertSingleDocument(document: T, tx?: Transaction): Promise<number> {
     return this.api.runWithDefaultWrite(async (tx: Transaction) => {
       const { pk: dpk, document: dataplyDocument } = await this.insertDocumentInternal(document, tx)
@@ -73,12 +67,6 @@ export class MutationManager<T extends DocumentJSON> {
     }, tx)
   }
 
-  /**
-   * Insert a batch of documents into the database
-   * @param documents The documents to insert
-   * @param tx The transaction to use
-   * @returns The primary keys of the inserted documents
-   */
   async insertBatchDocuments(documents: T[], tx?: Transaction): Promise<number[]> {
     return this.api.runWithDefaultWrite(async (tx: Transaction) => {
       // 1. Prepare Metadata and increment IDs in bulk
@@ -159,13 +147,6 @@ export class MutationManager<T extends DocumentJSON> {
     }, tx)
   }
 
-  /**
-   * Internal update method used by both fullUpdate and partialUpdate
-   * @param query The query to use
-   * @param computeUpdatedDoc Function that computes the updated document from the original
-   * @param tx The transaction to use
-   * @returns The number of updated documents
-   */
   private async updateInternal(
     query: Partial<DocumentDataplyQuery<T>>,
     computeUpdatedDoc: (doc: DataplyDocument<T>) => DataplyDocument<T>,
@@ -254,13 +235,6 @@ export class MutationManager<T extends DocumentJSON> {
     return updatedCount
   }
 
-  /**
-   * Fully update documents from the database that match the query
-   * @param query The query to use
-   * @param newRecord Complete document to replace with, or function that receives current document and returns new document
-   * @param tx The transaction to use
-   * @returns The number of updated documents
-   */
   async fullUpdate(
     query: Partial<DocumentDataplyQuery<T>>,
     newRecord: T | ((document: DataplyDocument<T>) => T),
@@ -277,13 +251,6 @@ export class MutationManager<T extends DocumentJSON> {
     }, tx)
   }
 
-  /**
-   * Partially update documents from the database that match the query
-   * @param query The query to use
-   * @param newRecord Partial document to merge, or function that receives current document and returns partial update
-   * @param tx The transaction to use
-   * @returns The number of updated documents
-   */
   async partialUpdate(
     query: Partial<DocumentDataplyQuery<T>>,
     newRecord: Partial<DataplyDocument<T>> | ((document: DataplyDocument<T>) => Partial<DataplyDocument<T>>),
@@ -303,12 +270,6 @@ export class MutationManager<T extends DocumentJSON> {
     }, tx)
   }
 
-  /**
-   * Delete documents from the database that match the query
-   * @param query The query to use
-   * @param tx The transaction to use
-   * @returns The number of deleted documents
-   */
   async deleteDocuments(
     query: Partial<DocumentDataplyQuery<T>>,
     tx?: Transaction

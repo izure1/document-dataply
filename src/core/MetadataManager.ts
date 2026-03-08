@@ -40,13 +40,6 @@ export class MetadataManager<T extends DocumentJSON> {
     await this.api.update(1, JSON.stringify(metadata), tx)
   }
 
-  /**
-   * Run a migration if the current schemeVersion is lower than the target version.
-   * After the callback completes, schemeVersion is updated to the target version.
-   * @param version The target scheme version
-   * @param callback The migration callback
-   * @param tx Optional transaction
-   */
   async migration(
     version: number,
     callback: (tx: Transaction) => Promise<void>,

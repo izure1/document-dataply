@@ -78,17 +78,31 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     return this.indexManager.indexedFields
   }
 
+  /**
+   * Register an index.
+   * @param name The name of the index
+   * @param option The option of the index
+   * @param tx The transaction to use
+   */
   async registerIndex(name: string, option: CreateIndexOption<T>, tx?: Transaction): Promise<void> {
     return this.indexManager.registerIndex(name, option, tx)
   }
 
   /**
    * Drop (remove) a named index.
+   * @param name The name of the index
+   * @param tx The transaction to use
    */
   async dropIndex(name: string, tx?: Transaction): Promise<void> {
     return this.indexManager.dropIndex(name, tx)
   }
 
+  /**
+   * Get a document by its primary key.
+   * @param pk The primary key of the document
+   * @param tx The transaction to use
+   * @returns The document
+   */
   async getDocument(pk: number, tx?: Transaction): Promise<DataplyDocument<T>> {
     return this.runWithDefault(async (tx) => {
       const row = await this.select(pk, false, tx)
@@ -119,6 +133,10 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     }
   }
 
+  /**
+   * Initialize the document database file.
+   * @param tx The transaction to use
+   */
   async initializeDocumentFile(tx: Transaction): Promise<void> {
     const metadata = await this.select(1, false, tx)
     if (metadata) {
@@ -127,12 +145,20 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     // 1. _id 인덱스 플레이스홀더(pk=-1)를 포함한 초기 메타데이터 생성
     // 실제 트리 헤드 행은 DocumentSerializeStrategyAsync.readHead()에서 지연 생성됨
     const metaObj = this.createDocumentInnerMetadata({
-      _id: [-1, { type: 'btree', fields: ['_id'] }]
+      _id: [-1, {
+        type: 'btree',
+        fields: ['_id']
+      }]
     })
     // 2. 플레이스홀더로 1번 행에 저장
     await this.insertAsOverflow(JSON.stringify(metaObj), false, tx)
   }
 
+  /**
+   * Verify the document database file.
+   * @param tx The transaction to use
+   * @returns True if the document database file is valid, false otherwise
+   */
   async verifyDocumentFile(tx: Transaction): Promise<boolean> {
     const row = await this.select(1, false, tx)
     if (!row) {
@@ -151,14 +177,29 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     return this.documentFormatter.flattenDocument(document)
   }
 
+  /**
+   * Get the document metadata.
+   * @param tx The transaction to use
+   * @returns The document metadata
+   */
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
     return this.metadataManager.getDocumentMetadata(tx)
   }
 
+  /**
+   * Get the document inner metadata.
+   * @param tx The transaction to use
+   * @returns The document inner metadata
+   */
   async getDocumentInnerMetadata(tx: Transaction): Promise<DocumentDataplyInnerMetadata> {
     return this.metadataManager.getDocumentInnerMetadata(tx)
   }
 
+  /**
+   * Update the document inner metadata.
+   * @param metadata The document inner metadata
+   * @param tx The transaction to use
+   */
   async updateDocumentInnerMetadata(metadata: DocumentDataplyInnerMetadata, tx: Transaction): Promise<void> {
     return this.metadataManager.updateDocumentInnerMetadata(metadata, tx)
   }

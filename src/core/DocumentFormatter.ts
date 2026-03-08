@@ -14,11 +14,6 @@ export class DocumentFormatter<T extends DocumentJSON> {
     return result
   }
 
-  /**
-   * returns flattened document
-   * @param document
-   * @returns
-   */
   flattenDocument(document: T): FlattenedDocumentJSON {
     return this.flattenInternal(document, '', {})
   }
