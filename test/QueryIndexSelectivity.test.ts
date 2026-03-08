@@ -22,8 +22,8 @@ describe('Composite Index Selectivity Parsing Test', () => {
 
   it('equal + gte → 복합 바운드가 배열로 생성되어야 한다', async () => {
     // verboseQuery를 통해 쿼리를 BPTree 조건 형식으로 변환
-    const verboseQ = api.verboseQuery({ category: 'weapon', level: { gte: 10 } })
-    const res = await api.getSelectivityCandidate(verboseQ)
+    const verboseQ = api.queryManager.verboseQuery({ category: 'weapon', level: { gte: 10 } })
+    const res = await api.optimizer.getSelectivityCandidate(verboseQ)
 
     console.log('driver condition:', JSON.stringify(res?.driver?.condition))
 
@@ -44,12 +44,12 @@ describe('Composite Index Selectivity Parsing Test', () => {
   })
 
   it('equal + equal + gte → 3필드 복합 바운드', async () => {
-    const verboseQ = api.verboseQuery({
+    const verboseQ = api.queryManager.verboseQuery({
       category: 'weapon',
       level: 10,
       score: { gte: 100 }
     })
-    const res = await api.getSelectivityCandidate(verboseQ)
+    const res = await api.optimizer.getSelectivityCandidate(verboseQ)
 
     console.log('driver condition:', JSON.stringify(res?.driver?.condition))
 
@@ -68,12 +68,12 @@ describe('Composite Index Selectivity Parsing Test', () => {
   })
 
   it('모두 equal → primaryEqual 배열이 생성되어야 한다', async () => {
-    const verboseQ = api.verboseQuery({
+    const verboseQ = api.queryManager.verboseQuery({
       category: 'weapon',
       level: 10,
       score: 50
     })
-    const res = await api.getSelectivityCandidate(verboseQ)
+    const res = await api.optimizer.getSelectivityCandidate(verboseQ)
 
     console.log('driver condition:', JSON.stringify(res?.driver?.condition))
 
@@ -86,11 +86,11 @@ describe('Composite Index Selectivity Parsing Test', () => {
   })
 
   it('gt 조건 → 하한선은 gt, 상한선은 이전 필드까지', async () => {
-    const verboseQ = api.verboseQuery({
+    const verboseQ = api.queryManager.verboseQuery({
       category: 'weapon',
       level: { gt: 10 }
     })
-    const res = await api.getSelectivityCandidate(verboseQ)
+    const res = await api.optimizer.getSelectivityCandidate(verboseQ)
 
     expect(res).not.toBeNull()
     const cond = res.driver.condition
@@ -103,11 +103,11 @@ describe('Composite Index Selectivity Parsing Test', () => {
   })
 
   it('lt 조건 → 하한선은 이전 필드까지, 상한선은 lt', async () => {
-    const verboseQ = api.verboseQuery({
+    const verboseQ = api.queryManager.verboseQuery({
       category: 'weapon',
       level: { lt: 10 }
     })
-    const res = await api.getSelectivityCandidate(verboseQ)
+    const res = await api.optimizer.getSelectivityCandidate(verboseQ)
 
     expect(res).not.toBeNull()
     const cond = res.driver.condition
@@ -120,12 +120,12 @@ describe('Composite Index Selectivity Parsing Test', () => {
   })
 
   it('or 조건 → 연속성 파괴 (이전 필드까지만 바운드 적용)', async () => {
-    const verboseQ = api.verboseQuery({
+    const verboseQ = api.queryManager.verboseQuery({
       category: 'weapon',
       level: { or: [10, 20] },
       score: 100 // level에서 끊겼으므로 score 조건은 B-Tree 바운드에 포함되지 않음
     })
-    const res = await api.getSelectivityCandidate(verboseQ)
+    const res = await api.optimizer.getSelectivityCandidate(verboseQ)
 
     expect(res).not.toBeNull()
     const cond = res.driver.condition
@@ -141,11 +141,11 @@ describe('Composite Index Selectivity Parsing Test', () => {
   })
 
   it('like 조건 → 연속성 파괴', async () => {
-    const verboseQ = api.verboseQuery({
+    const verboseQ = api.queryManager.verboseQuery({
       category: 'weapon',
       level: { like: '%10%' }
     })
-    const res = await api.getSelectivityCandidate(verboseQ)
+    const res = await api.optimizer.getSelectivityCandidate(verboseQ)
 
     expect(res).not.toBeNull()
     const cond = res.driver.condition
@@ -156,11 +156,11 @@ describe('Composite Index Selectivity Parsing Test', () => {
   })
 
   it('notEqual 및 기타 조건 → 연속성 파괴', async () => {
-    const verboseQ = api.verboseQuery({
+    const verboseQ = api.queryManager.verboseQuery({
       category: 'weapon',
       level: { notEqual: { v: 10 } }
     })
-    const res = await api.getSelectivityCandidate(verboseQ)
+    const res = await api.optimizer.getSelectivityCandidate(verboseQ)
 
     expect(res).not.toBeNull()
     const cond = res.driver.condition
