@@ -1,13 +1,13 @@
-import { Transaction } from 'dataply'
-import type { 
-  DocumentDataplyMetadata, 
+import type {
+  DocumentDataplyMetadata,
   DocumentDataplyInnerMetadata,
-  DocumentJSON,
+  DocumentJSON
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
+import { Transaction } from 'dataply'
 
 export class MetadataManager<T extends DocumentJSON> {
-  constructor(private api: DocumentDataplyAPI<T>) {}
+  constructor(private api: DocumentDataplyAPI<T>) { }
 
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
     const metadata = await this.api.getMetadata(tx)

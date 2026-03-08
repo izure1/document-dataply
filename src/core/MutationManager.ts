@@ -4,7 +4,7 @@ import type {
   FlattenedDocumentJSON,
   DocumentDataplyQuery,
   DataplyTreeValue,
-  Primitive,
+  Primitive
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
 import { Transaction, BPTreeAsyncTransaction } from 'dataply'
