@@ -18,6 +18,7 @@ import { Optimizer } from './Optimizer'
 import { QueryManager } from './QueryManager'
 import { IndexManager } from './IndexManager'
 import { MutationManager } from './MutationManager'
+import { MetadataManager } from './MetadataManager'
 
 export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   declare runWithDefault
@@ -31,6 +32,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   public readonly queryManager: QueryManager<T>
   public readonly indexManager: IndexManager<T>
   public readonly mutationManager: MutationManager<T>
+  public readonly metadataManager: MetadataManager<T>
 
   constructor(file: string, options: DocumentDataplyOptions) {
     super(file, options)
@@ -38,6 +40,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     this.queryManager = new QueryManager(this, this.optimizer)
     this.indexManager = new IndexManager(this)
     this.mutationManager = new MutationManager(this)
+    this.metadataManager = new MetadataManager(this)
 
     this.hook.onceAfter('init', async (tx, isNewlyCreated) => {
       if (isNewlyCreated) {
@@ -159,34 +162,15 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   }
 
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
-    const metadata = await this.getMetadata(tx)
-    const innerMetadata = await this.getDocumentInnerMetadata(tx)
-    const indices: string[] = []
-    for (const name of this.indexManager.registeredIndices.keys()) {
-      if (name !== '_id') {
-        indices.push(name)
-      }
-    }
-    return {
-      pageSize: metadata.pageSize,
-      pageCount: metadata.pageCount,
-      rowCount: metadata.rowCount,
-      usage: metadata.usage,
-      indices,
-      schemeVersion: innerMetadata.schemeVersion ?? 0,
-    }
+    return this.metadataManager.getDocumentMetadata(tx)
   }
 
   async getDocumentInnerMetadata(tx: Transaction): Promise<DocumentDataplyInnerMetadata> {
-    const row = await this.select(1, false, tx)
-    if (!row) {
-      throw new Error('Document metadata not found')
-    }
-    return JSON.parse(row)
+    return this.metadataManager.getDocumentInnerMetadata(tx)
   }
 
   async updateDocumentInnerMetadata(metadata: DocumentDataplyInnerMetadata, tx: Transaction): Promise<void> {
-    await this.update(1, JSON.stringify(metadata), tx)
+    return this.metadataManager.updateDocumentInnerMetadata(metadata, tx)
   }
 
   /**
@@ -201,19 +185,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     callback: (tx: Transaction) => Promise<void>,
     tx?: Transaction
   ): Promise<void> {
-    await this.runWithDefaultWrite(async (tx) => {
-      const innerMetadata = await this.getDocumentInnerMetadata(tx)
-      const currentVersion = innerMetadata.schemeVersion ?? 0
-      if (currentVersion < version) {
-        await callback(tx)
-        // 콜백 내부에서 createIndex/dropIndex가 메타데이터를 변경했을 수 있으므로
-        // 최신 메타데이터를 다시 읽어서 schemeVersion만 업데이트
-        const freshMetadata = await this.getDocumentInnerMetadata(tx)
-        freshMetadata.schemeVersion = version
-        freshMetadata.updatedAt = Date.now()
-        await this.updateDocumentInnerMetadata(freshMetadata, tx)
-      }
-    }, tx)
+    return this.metadataManager.migration(version, callback, tx)
   }
 
   /**
