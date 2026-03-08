@@ -1771,9 +1771,9 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     const isFts = ftsConditions.length > 0
     const isCompositeVerify = compositeVerifyConditions.length > 0
     const isVerifyOthers = verifyOthers.length > 0
-    const isInfiniteLimit = isFinite(limit)
+    const isFiniteLimit = isFinite(limit)
 
-    let currentChunkSize = isInfiniteLimit ? initialChunkSize : limit
+    let currentChunkSize = isFiniteLimit ? limit : initialChunkSize
     let chunk: number[] = []
     let chunkSize = 0
     let dropped = 0
@@ -1821,7 +1821,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
         docs.push(doc)
       }
 
-      if (isInfiniteLimit) {
+      if (!isFiniteLimit) {
         currentChunkSize = this.adjustChunkSize(currentChunkSize, chunkTotalSize)
       }
       return docs
