@@ -636,6 +636,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       pageSize: metadata.pageSize,
       pageCount: metadata.pageCount,
       rowCount: metadata.rowCount,
+      usage: metadata.usage,
       indices,
       schemeVersion: innerMetadata.schemeVersion ?? 0,
     }

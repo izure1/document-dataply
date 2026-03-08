@@ -56,6 +56,11 @@ export interface DocumentDataplyMetadata {
    */
   rowCount: number
   /**
+   * The usage of the dataply. It is calculated based on the remaining page capacity.
+   * The value is between 0 and 1.
+   */
+  usage: number
+  /**
    * The list of user-created index names (excludes internal '_id' index).
    */
   indices: string[]
