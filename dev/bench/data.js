@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772969501436,
+  "lastUpdate": 1772970193759,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -2779,6 +2779,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 102.49,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "dbf1413dc853d7e7e51a12b06cc30bd161a7c958",
+          "message": "performance: Intl.collator 최적 성능 설정 검증",
+          "timestamp": "2026-03-08T20:41:55+09:00",
+          "tree_id": "1c2d87258952012e9ddbdf33d111b0e0eb651577",
+          "url": "https://github.com/izure1/document-dataply/commit/dbf1413dc853d7e7e51a12b06cc30bd161a7c958"
+        },
+        "date": 1772970193366,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 6204.59,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 44.85,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 94.06,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 4930.03,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 97.24,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 98.63,
             "unit": "ms"
           }
         ]
