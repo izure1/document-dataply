@@ -19,6 +19,7 @@ import { QueryManager } from './QueryManager'
 import { IndexManager } from './IndexManager'
 import { MutationManager } from './MutationManager'
 import { MetadataManager } from './MetadataManager'
+import { DocumentFormatter } from './DocumentFormatter'
 
 export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   declare runWithDefault
@@ -33,6 +34,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   public readonly indexManager: IndexManager<T>
   public readonly mutationManager: MutationManager<T>
   public readonly metadataManager: MetadataManager<T>
+  public readonly documentFormatter: DocumentFormatter<T>
 
   constructor(file: string, options: DocumentDataplyOptions) {
     super(file, options)
@@ -41,6 +43,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     this.indexManager = new IndexManager(this)
     this.mutationManager = new MutationManager(this)
     this.metadataManager = new MetadataManager(this)
+    this.documentFormatter = new DocumentFormatter<T>()
 
     this.hook.onceAfter('init', async (tx, isNewlyCreated) => {
       if (isNewlyCreated) {
@@ -139,26 +142,13 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     return data.magicString === 'document-dataply' && data.version === 1
   }
 
-  private flatten(obj: any, parentKey: string = '', result: FlattenedDocumentJSON = {}): FlattenedDocumentJSON {
-    for (const key in obj) {
-      const newKey = parentKey ? `${parentKey}.${key}` : key
-      if (typeof obj[key] === 'object' && obj[key] !== null) {
-        this.flatten(obj[key], newKey, result)
-      }
-      else {
-        result[newKey] = obj[key]
-      }
-    }
-    return result
-  }
-
   /**
    * returns flattened document
    * @param document
    * @returns
    */
   flattenDocument(document: T): FlattenedDocumentJSON {
-    return this.flatten(document, '', {})
+    return this.documentFormatter.flattenDocument(document)
   }
 
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
