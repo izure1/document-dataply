@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772971531938,
+  "lastUpdate": 1772971732230,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -3015,6 +3015,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 102.96,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "b4df9f86eae9b1f7e25e0e63d666e8e418e47e91",
+          "message": "performance: documentCompator 성능 최적화를 위해 localeCompare 원복. Intl.Collator.compare은 localeCompare보다 느립니다.",
+          "timestamp": "2026-03-08T21:07:43+09:00",
+          "tree_id": "de9b0546762d5adc5a2299b8d751b494054f17ab",
+          "url": "https://github.com/izure1/document-dataply/commit/b4df9f86eae9b1f7e25e0e63d666e8e418e47e91"
+        },
+        "date": 1772971731816,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 3679.8,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 19.21,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 44.91,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 116.55,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 4999.6,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 105.5,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 102.65,
             "unit": "ms"
           }
         ]
