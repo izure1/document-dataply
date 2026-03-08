@@ -2,13 +2,7 @@ import type { DataplyTreeValue, Primitive } from '../../types'
 import { ValueComparator } from 'dataply'
 
 export class DocumentValueComparator<T extends DataplyTreeValue<U>, U extends Primitive> extends ValueComparator<T> {
-  private readonly _intlComparator = new Intl.Collator(undefined, {
-    usage: 'sort',
-    caseFirst: 'false',
-    sensitivity: 'variant',
-    numeric: false,
-    ignorePunctuation: false,
-  })
+  private readonly _intlComparator = new Intl.Collator()
 
   primaryAsc(a: T, b: T): number {
     return this._compareValue(a.v, b.v)
