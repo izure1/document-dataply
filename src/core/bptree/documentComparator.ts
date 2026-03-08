@@ -25,10 +25,10 @@ export class DocumentValueComparator<T extends DataplyTreeValue<U>, U extends Pr
    * 두 Primitive 값을 비교합니다.
    */
   private _compareDiff(a: Primitive, b: Primitive): number {
-    if (typeof a !== 'string' && typeof b !== 'string') {
-      return +(a as number) - +(b as number)
+    if (typeof a === 'string' && typeof b === 'string') {
+      return this._intlComparator.compare(a, b)
     }
-    return this._intlComparator.compare(a + '', b + '')
+    return +(a as number) - +(b as number)
   }
 
   /**

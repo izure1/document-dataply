@@ -8,7 +8,7 @@
 > **This project is currently in the Alpha stage.**
 > APIs and internal structures may change significantly between versions. Use with caution in production environments.
 
-`document-dataply` is a **pure JavaScript** high-performance document-oriented database library built on top of the [`dataply`](https://github.com/izure1/dataply) record storage engine. It is designed to handle **millions of rows** with high stability, providing a structured way to store, index, and query JSON-style documents.
+`document-dataply` is a **pure JavaScript** high-performance document-oriented database library built on top of the [`dataply`](https://github.com/izure1/dataply) record storage engine. It is designed to handle at least millions of documents with high stability, providing a structured way to store, index, and query JSON-style documents.
 
 ## Key Features
 
@@ -161,7 +161,7 @@ For detailed usage and error handling patterns, see the [Transaction Guide (TRAN
 
 ### Updating and Deleting
 
-`document-dataply` provides flexible ways to update or delete documents based on query results. All these operations are **Stream-based**, allowing you to handle millions of records without memory concerns.
+`document-dataply` provides flexible ways to update or delete documents based on query results. All these operations are **Stream-based**, allowing you to handle at least millions of records without memory concerns.
 
 - **Partial Update**: Modify only specific fields or use a function for dynamic updates.
 - **Full Update**: Replace the entire document while preserving the original `_id`.
