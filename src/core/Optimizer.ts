@@ -1,7 +1,7 @@
-import { BPTreeAsync } from 'dataply'
-import { tokenize } from '../utils/tokenizer'
 import type { DataplyTreeValue, DocumentDataplyQuery, DocumentDataplyCondition } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
+import { BPTreeAsync } from 'dataply'
+import { tokenize } from '../utils/tokenizer'
 
 export class Optimizer<T extends Record<string, any>> {
   constructor(private api: DocumentDataplyAPI<T>) { }

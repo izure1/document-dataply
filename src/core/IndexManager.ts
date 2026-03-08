@@ -1,12 +1,7 @@
-import { BPTreeAsync, Transaction, BPTreeAsyncTransaction } from 'dataply'
-import { tokenize } from '../utils/tokenizer'
-import { catchPromise } from '../utils/catchPromise'
-import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import type {
   DataplyTreeValue,
   DocumentDataplyInnerMetadata,
   Primitive,
-  DataplyDocument,
   CreateIndexOption,
   IndexMetaConfig,
   FTSConfig,
@@ -14,6 +9,9 @@ import type {
   FlattenedDocumentJSON
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
+import { BPTreeAsync, Transaction, BPTreeAsyncTransaction } from 'dataply'
+import { tokenize } from '../utils/tokenizer'
+import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 
 export class IndexManager<T extends DocumentJSON> {
   indices: DocumentDataplyInnerMetadata['indices'] = {}

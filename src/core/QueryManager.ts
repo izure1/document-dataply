@@ -1,7 +1,4 @@
 import * as os from 'node:os'
-import { BPTreeAsync, type BPTreeCondition } from 'dataply'
-import { tokenize } from '../utils/tokenizer'
-import { BinaryHeap } from '../utils/heap'
 import type {
   DataplyTreeValue,
   DocumentDataplyQuery,
@@ -14,6 +11,9 @@ import type {
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
 import type { Optimizer } from './Optimizer'
+import { BPTreeAsync, type BPTreeCondition } from 'dataply'
+import { tokenize } from '../utils/tokenizer'
+import { BinaryHeap } from '../utils/heap'
 
 export class QueryManager<T extends DocumentJSON> {
   private readonly operatorConverters: Partial<Record<
@@ -395,6 +395,22 @@ export class QueryManager<T extends DocumentJSON> {
       const docs = await processChunk(chunk)
       for (let j = 0, dLen = docs.length; j < dLen; j++) yield docs[j]
     }
+  }
+
+  /**
+   * Count documents from the database that match the query
+   * @param query The query to use
+   * @param tx The transaction to use
+   * @returns The number of documents that match the query
+   */
+  async countDocuments(
+    query: Partial<DocumentDataplyQuery<T>>,
+    tx?: any
+  ): Promise<number> {
+    return this.api.runWithDefault(async (tx) => {
+      const pks = await this.getKeys(query)
+      return pks.length
+    }, tx)
   }
 
   selectDocuments(
