@@ -24,7 +24,7 @@ const SELECTIVITY = {
   /** FTS 통계 없을 때 보수적 추정 */
   FTS_DEFAULT: 0.5,
   /** 정렬 비용 가중치 (orderBy 미지원 시) */
-  SORT_PENALTY: 0.3,
+  SORT_PENALTY: 0.5,
   /** 인메모리 정렬이 유의미해지는 임계 문서 수 */
   SORT_THRESHOLD: 10_000,
 } as const
