@@ -5,12 +5,26 @@ import type {
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
 import type { AnalysisProvider } from './AnalysisProvider'
+import { RealtimeAnalysisProvider } from './RealtimeAnalysisProvider'
+import { IntervalAnalysisProvider } from './IntervalAnalysisProvider'
 import { Transaction } from 'dataply'
+import { BuiltinAnalysisProviders } from './analysis'
 
 export class AnalysisManager<T extends DocumentJSON> {
   private providers: Map<string, AnalysisProvider<T>> = new Map()
 
   constructor(private api: DocumentDataplyAPI<T>) { }
+
+  /**
+   * Register all built-in analysis providers.
+   * Each provider class is instantiated with the API reference and registered.
+   */
+  registerBuiltinProviders(): void {
+    for (const Provider of BuiltinAnalysisProviders) {
+      const instance = new Provider(this.api)
+      this.registerProvider(instance)
+    }
+  }
 
   /**
    * Register an analysis provider.
@@ -29,56 +43,70 @@ export class AnalysisManager<T extends DocumentJSON> {
    * @param tx The transaction to use
    */
   async initializeProviders(tx: Transaction): Promise<void> {
+    const header = await this.getOrCreateAnalysisHeader(tx)
+    const metadata = await this.api.getDocumentInnerMetadata(tx)
+
     for (const [name, provider] of this.providers) {
-      const raw = await this.getAnalysisData(name, tx)
-      await provider.load(raw)
+      if (header[name] !== null) {
+        // 기존 provider: storageKey 할당 후 데이터 로드
+        provider.storageKey = header[name]
+        const raw = await this.api.select(header[name], false, tx)
+        await provider.load(raw, tx)
+      } else {
+        // 새 provider: overflow row 생성, storageKey 할당, header 갱신
+        const pk = await this.api.insertAsOverflow(JSON.stringify(null), false, tx)
+        provider.storageKey = pk
+        header[name] = pk
+        await this.api.update(metadata.analysis!, JSON.stringify(header), tx)
+        await provider.load(null, tx)
+      }
     }
   }
 
   /**
-   * Notify all registered providers that documents were inserted.
-   * For realtime providers, data is persisted immediately.
+   * Notify all realtime providers that documents were inserted.
+   * Data is persisted immediately after each provider processes the mutation.
    * @param documents The flattened documents that were inserted
    * @param tx The transaction to use
    */
   async notifyInsert(documents: FlattenedDocumentJSON[], tx: Transaction): Promise<void> {
     if (documents.length === 0) return
     for (const [name, provider] of this.providers) {
-      await provider.onInsert(documents)
-      if (provider.triggerMode === 'realtime') {
-        await this.setAnalysisData(name, await provider.serialize(), tx)
+      if (provider instanceof RealtimeAnalysisProvider) {
+        await provider.onInsert(documents)
+        await this.setAnalysisData(name, await provider.serialize(tx), tx)
       }
     }
   }
 
   /**
-   * Notify all registered providers that documents were deleted.
-   * For realtime providers, data is persisted immediately.
+   * Notify all realtime providers that documents were deleted.
+   * Data is persisted immediately after each provider processes the mutation.
    * @param documents The flattened documents that were deleted
    * @param tx The transaction to use
    */
   async notifyDelete(documents: FlattenedDocumentJSON[], tx: Transaction): Promise<void> {
     if (documents.length === 0) return
     for (const [name, provider] of this.providers) {
-      await provider.onDelete(documents)
-      if (provider.triggerMode === 'realtime') {
-        await this.setAnalysisData(name, await provider.serialize(), tx)
+      if (provider instanceof RealtimeAnalysisProvider) {
+        await provider.onDelete(documents)
+        await this.setAnalysisData(name, await provider.serialize(tx), tx)
       }
     }
   }
 
   /**
-   * Notify all registered providers that documents were updated.
-   * For realtime providers, data is persisted immediately.
+   * Notify all realtime providers that documents were updated.
+   * Data is persisted immediately after each provider processes the mutation.
    * @param pairs Array of { oldDocument, newDocument } pairs
    * @param tx The transaction to use
    */
   async notifyUpdate(pairs: { oldDocument: FlattenedDocumentJSON, newDocument: FlattenedDocumentJSON }[], tx: Transaction): Promise<void> {
     if (pairs.length === 0) return
     for (const [name, provider] of this.providers) {
-      await provider.onUpdate(pairs)
-      if (provider.triggerMode === 'realtime') {
-        await this.setAnalysisData(name, await provider.serialize(), tx)
+      if (provider instanceof RealtimeAnalysisProvider) {
+        await provider.onUpdate(pairs)
+        await this.setAnalysisData(name, await provider.serialize(tx), tx)
       }
     }
   }
@@ -89,8 +117,8 @@ export class AnalysisManager<T extends DocumentJSON> {
    */
   async flush(tx: Transaction): Promise<void> {
     for (const [name, provider] of this.providers) {
-      if (provider.triggerMode === 'interval') {
-        await this.setAnalysisData(name, await provider.serialize(), tx)
+      if (provider instanceof IntervalAnalysisProvider) {
+        await this.setAnalysisData(name, await provider.serialize(tx), tx)
       }
     }
   }

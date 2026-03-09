@@ -57,6 +57,9 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       }
       const metadata = await this.getDocumentInnerMetadata(tx)
       await this.indexManager.initializeIndices(metadata, isNewlyCreated, tx)
+      this.analysisManager.registerBuiltinProviders()
+      await this.analysisManager.initializeProviders(tx)
+      await this.analysisManager.flush(tx)
       this._initialized = true
       return tx
     })
