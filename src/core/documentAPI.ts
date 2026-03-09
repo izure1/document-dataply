@@ -20,6 +20,7 @@ import { IndexManager } from './IndexManager'
 import { MutationManager } from './MutationManager'
 import { MetadataManager } from './MetadataManager'
 import { DocumentFormatter } from './DocumentFormatter'
+import { AnalysisManager } from './AnalysisManager'
 
 export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   declare runWithDefault
@@ -35,6 +36,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   public readonly mutationManager: MutationManager<T>
   public readonly metadataManager: MetadataManager<T>
   public readonly documentFormatter: DocumentFormatter<T>
+  public readonly analysisManager: AnalysisManager<T>
 
   constructor(file: string, options: DocumentDataplyOptions) {
     super(file, options)
@@ -44,6 +46,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     this.mutationManager = new MutationManager(this)
     this.metadataManager = new MetadataManager(this)
     this.documentFormatter = new DocumentFormatter<T>()
+    this.analysisManager = new AnalysisManager(this)
 
     this.hook.onceAfter('init', async (tx, isNewlyCreated) => {
       if (isNewlyCreated) {

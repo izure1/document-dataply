@@ -40,6 +40,15 @@ export interface DocumentDataplyInnerMetadata {
       IndexMetaConfig
     ]
   }
+  analysis?: number
+}
+
+/**
+ * Analysis header row structure.
+ * Maps analysis type names to their overflow row PKs.
+ */
+export interface AnalysisHeader {
+  [type: string]: number
 }
 
 export interface DocumentDataplyMetadata {

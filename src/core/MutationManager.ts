@@ -63,6 +63,10 @@ export class MutationManager<T extends DocumentJSON> {
           if (error) throw error
         }
       }
+
+      // 통계 provider에 insert 이벤트 전파
+      await this.api.analysisManager.notifyInsert([flattenDocument], tx)
+
       return dataplyDocument._id
     }, tx)
   }
@@ -143,6 +147,14 @@ export class MutationManager<T extends DocumentJSON> {
           throw (res as any).error
         }
       }
+
+      // 6. 통계 provider에 insert 이벤트 전파
+      const flatDocs: FlattenedDocumentJSON[] = []
+      for (let i = 0, len = flattenedData.length; i < len; i++) {
+        flatDocs.push(flattenedData[i].data)
+      }
+      await this.api.analysisManager.notifyInsert(flatDocs, tx)
+
       return ids
     }, tx)
   }
@@ -154,6 +166,7 @@ export class MutationManager<T extends DocumentJSON> {
   ): Promise<number> {
     const pks = await this.api.queryManager.getKeys(query)
     let updatedCount = 0
+    const updatePairs: { oldDocument: FlattenedDocumentJSON, newDocument: FlattenedDocumentJSON }[] = []
 
     const treeTxs = new Map<string, BPTreeAsyncTransaction<string | number, DataplyTreeValue<any>>>()
     for (const [indexName, tree] of this.api.trees) {
@@ -217,6 +230,9 @@ export class MutationManager<T extends DocumentJSON> {
         }
       }
 
+      // update pair 축적
+      updatePairs.push({ oldDocument: oldFlatDoc, newDocument: newFlatDoc })
+
       // 실제 레코드 업데이트
       await this.api.update(pk, JSON.stringify(updatedDoc), tx)
       updatedCount++
@@ -231,6 +247,9 @@ export class MutationManager<T extends DocumentJSON> {
         throw (result as any).error
       }
     }
+
+    // 통계 provider에 update 이벤트 일괄 전파
+    await this.api.analysisManager.notifyUpdate(updatePairs, tx)
 
     return updatedCount
   }
@@ -277,6 +296,7 @@ export class MutationManager<T extends DocumentJSON> {
     return this.api.runWithDefaultWrite(async (tx: Transaction) => {
       const pks = await this.api.queryManager.getKeys(query)
       let deletedCount = 0
+      const deletedFlatDocs: FlattenedDocumentJSON[] = []
 
       for (let i = 0, len = pks.length; i < len; i++) {
         const pk = pks[i]
@@ -306,10 +326,16 @@ export class MutationManager<T extends DocumentJSON> {
           }
         }
 
+        // 삭제된 문서 축적
+        deletedFlatDocs.push(flatDoc)
+
         // 실제 레코드 삭제
         await this.api.delete(pk, true, tx)
         deletedCount++
       }
+
+      // 통계 provider에 delete 이벤트 일괄 전파
+      await this.api.analysisManager.notifyDelete(deletedFlatDocs, tx)
 
       return deletedCount
     }, tx)
