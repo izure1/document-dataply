@@ -178,7 +178,9 @@ export class QueryManager<T extends DocumentJSON> {
   async getDriverKeys(
     query: Partial<DocumentDataplyQuery<T>>,
     orderBy?: string,
-    sortOrder: 'asc' | 'desc' = 'asc'
+    sortOrder: 'asc' | 'desc' = 'asc',
+    limit: number = Infinity,
+    offset: number = 0
   ): Promise<{
     keysStream: AsyncIterableIterator<number>,
     others: {
@@ -201,7 +203,9 @@ export class QueryManager<T extends DocumentJSON> {
     const normalizedQuery = isQueryEmpty ? { _id: { gte: 0 } } : query
     const selectivity = await this.optimizer.getSelectivityCandidate(
       this.verboseQuery(normalizedQuery as any),
-      orderBy as string
+      orderBy as string,
+      limit,
+      offset
     )
 
     if (!selectivity) return null
@@ -482,13 +486,14 @@ export class QueryManager<T extends DocumentJSON> {
         }
       }
 
-      const driverResult = await self.getDriverKeys(query, orderByField, sortOrder)
+      const driverResult = await self.getDriverKeys(query, orderByField, sortOrder, limit, offset)
       if (!driverResult) return
       const { keysStream, others, compositeVerifyConditions, isDriverOrderByField, rollback } = driverResult
       const initialChunkSize = self.api.options.pageSize
+      const isInMemorySort = !isDriverOrderByField && orderByField
 
       try {
-        if (!isDriverOrderByField && orderByField) {
+        if (isInMemorySort) {
           const topK = limit === Infinity ? Infinity : offset + limit
           let heap: BinaryHeap<DataplyDocument<T>> | null = null
 

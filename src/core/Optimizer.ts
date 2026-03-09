@@ -4,6 +4,31 @@ import type { FTSTermCount } from './analysis/FTSTermCount'
 import { BPTreeAsync } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 
+/**
+ * 선택도 기본값 (= B+Tree 스캔 비용)
+ * 값이 낮을수록 인덱스 스캔이 효율적임
+ */
+const SELECTIVITY = {
+  /** O(log N) 포인트 룩업 */
+  EQUAL: 0.01,
+  /** 양쪽 바운드(gte+lte) 범위 스캔 */
+  BOUNDED_RANGE: 0.33,
+  /** 한쪽 바운드(gte 또는 lte)만 있을 때, 중간부터 풀스캔 */
+  HALF_RANGE: 0.5,
+  /** Or 조건: B+Tree 내부 풀스캔 */
+  OR: 0.9,
+  /** Like 조건: B+Tree 내부 풀스캔 */
+  LIKE: 0.9,
+  /** 알 수 없는 조건 */
+  UNKNOWN: 0.9,
+  /** FTS 통계 없을 때 보수적 추정 */
+  FTS_DEFAULT: 0.5,
+  /** 정렬 비용 가중치 (orderBy 미지원 시) */
+  SORT_PENALTY: 0.3,
+  /** 인메모리 정렬이 유의미해지는 임계 문서 수 */
+  SORT_THRESHOLD: 10_000,
+} as const
+
 export class Optimizer<T extends Record<string, any>> {
   constructor(private api: DocumentDataplyAPI<T>) { }
 
@@ -25,7 +50,7 @@ export class Optimizer<T extends Record<string, any>> {
     if (!queryFields.has(primaryField)) return null
 
     const builtCondition: Record<string, any> = {}
-    let score = 0
+    let selectivity = 1.0
     let isConsecutive = true
     const coveredFields: string[] = []
     const compositeVerifyFields: string[] = []
@@ -43,7 +68,6 @@ export class Optimizer<T extends Record<string, any>> {
       }
 
       coveredFields.push(field)
-      score += 1
 
       if (isConsecutive) {
         const cond = query[field as keyof typeof query] as any
@@ -51,7 +75,7 @@ export class Optimizer<T extends Record<string, any>> {
           let isBounded = false
 
           if (typeof cond !== 'object' || cond === null) {
-            score += 100
+            selectivity *= SELECTIVITY.EQUAL
             startValues.push(cond)
             endValues.push(cond)
             startOperator = 'primaryGte'
@@ -60,7 +84,7 @@ export class Optimizer<T extends Record<string, any>> {
           }
           else if ('primaryEqual' in cond || 'equal' in cond) {
             const val = cond.primaryEqual?.v ?? cond.equal?.v ?? cond.primaryEqual ?? cond.equal
-            score += 100
+            selectivity *= SELECTIVITY.EQUAL
             startValues.push(val)
             endValues.push(val)
             startOperator = 'primaryGte'
@@ -69,7 +93,7 @@ export class Optimizer<T extends Record<string, any>> {
           }
           else if ('primaryGte' in cond || 'gte' in cond) {
             const val = cond.primaryGte?.v ?? cond.gte?.v ?? cond.primaryGte ?? cond.gte
-            score += 50
+            selectivity *= SELECTIVITY.HALF_RANGE
             isConsecutive = false
             startValues.push(val)
             startOperator = 'primaryGte'
@@ -78,7 +102,7 @@ export class Optimizer<T extends Record<string, any>> {
           }
           else if ('primaryGt' in cond || 'gt' in cond) {
             const val = cond.primaryGt?.v ?? cond.gt?.v ?? cond.primaryGt ?? cond.gt
-            score += 50
+            selectivity *= SELECTIVITY.HALF_RANGE
             isConsecutive = false
             startValues.push(val)
             startOperator = 'primaryGt'
@@ -87,7 +111,7 @@ export class Optimizer<T extends Record<string, any>> {
           }
           else if ('primaryLte' in cond || 'lte' in cond) {
             const val = cond.primaryLte?.v ?? cond.lte?.v ?? cond.primaryLte ?? cond.lte
-            score += 50
+            selectivity *= SELECTIVITY.HALF_RANGE
             isConsecutive = false
             endValues.push(val)
             endOperator = 'primaryLte'
@@ -96,7 +120,7 @@ export class Optimizer<T extends Record<string, any>> {
           }
           else if ('primaryLt' in cond || 'lt' in cond) {
             const val = cond.primaryLt?.v ?? cond.lt?.v ?? cond.primaryLt ?? cond.lt
-            score += 50
+            selectivity *= SELECTIVITY.HALF_RANGE
             isConsecutive = false
             endValues.push(val)
             endOperator = 'primaryLt'
@@ -104,15 +128,15 @@ export class Optimizer<T extends Record<string, any>> {
             isBounded = true
           }
           else if ('primaryOr' in cond || 'or' in cond) {
-            score += 20
+            selectivity *= SELECTIVITY.OR
             isConsecutive = false
           }
           else if ('like' in cond) {
-            score += 15
+            selectivity *= SELECTIVITY.LIKE
             isConsecutive = false
           }
           else {
-            score += 10
+            selectivity *= SELECTIVITY.UNKNOWN
             isConsecutive = false
           }
 
@@ -164,9 +188,6 @@ export class Optimizer<T extends Record<string, any>> {
         }
         if (!isExactMatch) break
       }
-      if (isIndexOrderSupported) {
-        score += 200
-      }
     }
 
     return {
@@ -175,7 +196,7 @@ export class Optimizer<T extends Record<string, any>> {
       field: primaryField,
       indexName,
       isFtsMatch: false,
-      score,
+      selectivity,
       compositeVerifyFields,
       coveredFields,
       isIndexOrderSupported
@@ -184,7 +205,7 @@ export class Optimizer<T extends Record<string, any>> {
 
   /**
    * FTS 타입 인덱스의 선택도를 평가합니다.
-   * FTSTermCount 통계가 있으면 토큰 빈도 기반 동적 score를 산출합니다.
+   * FTSTermCount 통계가 있으면 실측 데이터 기반으로 선택도를 산출합니다.
    */
   evaluateFTSCandidate<
     U extends Partial<DocumentDataplyQuery<T>>,
@@ -205,14 +226,7 @@ export class Optimizer<T extends Record<string, any>> {
     const ftsConfig = this.api.indexManager.getFtsConfig(config as any)
     const matchTokens = ftsConfig ? tokenize((condition as any).match as string, ftsConfig) : []
 
-    // 통계 기반 동적 score 산출
-    // MAX_FTS_SCORE=400: 희귀 토큰이 B-Tree orderBy(+200)를 이길 수 있도록 설정
-    // selectivity ~30% 이하 → FTS 우선, ~40% 이상 → orderBy 우선
-    const MAX_FTS_SCORE = 400
-    const MIN_FTS_SCORE = 10
-    const DEFAULT_FTS_SCORE = 90
-
-    let score = DEFAULT_FTS_SCORE
+    let selectivity: number = SELECTIVITY.FTS_DEFAULT
 
     const termCountProvider = this.api.analysisManager
       .getProvider<FTSTermCount<T>>('fts_term_count')
@@ -225,8 +239,7 @@ export class Optimizer<T extends Record<string, any>> {
       const minCount = termCountProvider.getMinTokenCount(field, strategy, matchTokens)
       if (minCount >= 0) {
         const sampleSize = termCountProvider.getSampleSize()
-        const selectivityRatio = Math.min(minCount / sampleSize, 1)
-        score = Math.round(MAX_FTS_SCORE * (1 - selectivityRatio) + MIN_FTS_SCORE)
+        selectivity = Math.min(minCount / sampleSize, 1)
       }
     }
 
@@ -237,22 +250,52 @@ export class Optimizer<T extends Record<string, any>> {
       indexName,
       isFtsMatch: true,
       matchTokens,
-      score,
+      selectivity,
       compositeVerifyFields: [],
       coveredFields: [field],
       isIndexOrderSupported: false
-    } as const
+    }
   }
 
   /**
-   * 실행할 최적의 인덱스를 선택합니다. (최적 드라이버 선택)
+   * 비용 계산: effectiveScanCost + sortPenalty
+   * - effectiveScanCost: 인덱스 순서 지원 + limit 존재 시 조기 종료 이점 반영
+   * - sortPenalty: 인메모리 정렬의 절대 문서 수 기반 비용
+   */
+  private calculateCost(
+    selectivity: number,
+    isIndexOrderSupported: boolean,
+    orderByField: string | undefined,
+    N: number,
+    topK: number
+  ): number {
+    // 실질 스캔 비용: 인덱스 순서 지원 + limit 존재 시 조기 종료
+    const effectiveScanCost =
+      (isIndexOrderSupported && isFinite(topK) && N > 0)
+        ? Math.min(topK / N, selectivity)
+        : selectivity
+
+    // 인메모리 정렬 비용: 절대 문서 수 반영
+    const estimatedSortDocs = selectivity * N
+    const sortPenalty = (orderByField && !isIndexOrderSupported)
+      ? Math.min(estimatedSortDocs / SELECTIVITY.SORT_THRESHOLD, 1) * SELECTIVITY.SORT_PENALTY
+      : 0
+
+    return effectiveScanCost + sortPenalty
+  }
+
+  /**
+   * 실행할 최적의 인덱스를 선택합니다. (비용 기반 최적 드라이버 선택)
+   * cost = selectivity + sortPenalty (낮을수록 좋음)
    */
   async getSelectivityCandidate<
     U extends Partial<DocumentDataplyQuery<T>>,
     V extends DataplyTreeValue<U>
   >(
     query: Partial<DocumentDataplyQuery<V>>,
-    orderByField?: string
+    orderByField?: string,
+    limit: number = Infinity,
+    offset: number = 0
   ): Promise<{
     driver: ({
       tree: BPTreeAsync<number, V>,
@@ -300,11 +343,17 @@ export class Optimizer<T extends Record<string, any>> {
       indexName: string,
       isFtsMatch: boolean,
       matchTokens?: string[],
-      score: number,
+      selectivity: number,
+      cost: number,
       compositeVerifyFields: string[],
       coveredFields: string[],
       isIndexOrderSupported: boolean
     }[] = []
+
+    // 전체 문서 수: 인메모리 정렬 비용과 limit 조기 종료 계산에 사용
+    const metadata = await this.api.getMetadata()
+    const N = metadata.rowCount
+    const topK = isFinite(limit) ? offset + limit : Infinity
 
     for (const [indexName, config] of this.api.indexManager.registeredIndices) {
       const tree = this.api.trees.get(indexName)
@@ -320,7 +369,12 @@ export class Optimizer<T extends Record<string, any>> {
           treeTx as unknown as BPTreeAsync<string | number, V>,
           orderByField
         )
-        if (candidate) candidates.push(candidate as any)
+        if (candidate) {
+          candidates.push({
+            ...candidate,
+            cost: this.calculateCost(candidate.selectivity, candidate.isIndexOrderSupported, orderByField, N, topK)
+          } as any)
+        }
       }
       else if (config.type === 'fts') {
         const treeTx = await tree.createTransaction()
@@ -331,7 +385,12 @@ export class Optimizer<T extends Record<string, any>> {
           queryFields,
           treeTx as unknown as BPTreeAsync<string | number, V>
         )
-        if (candidate) candidates.push(candidate as any)
+        if (candidate) {
+          candidates.push({
+            ...candidate,
+            cost: this.calculateCost(candidate.selectivity, candidate.isIndexOrderSupported, orderByField, N, topK)
+          } as any)
+        }
       }
     }
 
@@ -346,8 +405,9 @@ export class Optimizer<T extends Record<string, any>> {
       return null
     }
 
+    // 비용 오름차순 정렬 (낮을수록 좋음)
     candidates.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score
+      if (a.cost !== b.cost) return a.cost - b.cost
 
       const aConfig = this.api.indexManager.registeredIndices.get(a.indexName)
       const bConfig = this.api.indexManager.registeredIndices.get(b.indexName)
@@ -361,15 +421,15 @@ export class Optimizer<T extends Record<string, any>> {
     const driverCoveredFields = new Set(driver.coveredFields)
     const nonDriverCandidates = candidates.slice(1).filter(c => !driverCoveredFields.has(c.field))
 
-    // coveredFields가 다른 높은 점수 후보의 부분집합인 후보 제거
-    // (candidates는 이미 score 내림차순 정렬됨)
+    // coveredFields가 다른 낮은 비용 후보의 부분집합인 후보 제거
+    // (candidates는 이미 cost 오름차순 정렬됨)
     const others: typeof nonDriverCandidates = []
     for (let i = 0, len = nonDriverCandidates.length; i < len; i++) {
       const candidate = nonDriverCandidates[i]
       let isSubset = false
       for (let j = 0, oLen = others.length; j < oLen; j++) {
-        const higher = others[j]
-        if (candidate.coveredFields.every(f => higher.coveredFields.includes(f))) {
+        const better = others[j]
+        if (candidate.coveredFields.every(f => better.coveredFields.includes(f))) {
           isSubset = true
           break
         }
