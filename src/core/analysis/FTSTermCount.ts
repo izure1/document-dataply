@@ -10,13 +10,15 @@ export class FTSTermCount<T extends DocumentJSON = DocumentJSON> extends Interva
   readonly name = 'fts_term_count'
 
   private termCount: TermCountData = {}
+  private sampleSize: number = 0
 
   async serialize(tx: Transaction): Promise<string> {
     const docs = await this.sample({ count: 1000 }, tx)
 
     this.termCount = {}
+    this.sampleSize = docs.length
 
-    if (docs.length === 0) return JSON.stringify({})
+    if (docs.length === 0) return JSON.stringify({ _sampleSize: 0 })
 
     const ftsIndices = new Map<string, any>()
     for (const [indexName, config] of this.api.indexManager.registeredIndices) {
@@ -25,7 +27,7 @@ export class FTSTermCount<T extends DocumentJSON = DocumentJSON> extends Interva
       }
     }
 
-    if (ftsIndices.size === 0) return JSON.stringify({})
+    if (ftsIndices.size === 0) return JSON.stringify({ _sampleSize: this.sampleSize })
 
     for (let i = 0, len = docs.length; i < len; i++) {
       const doc = docs[i]
@@ -76,21 +78,61 @@ export class FTSTermCount<T extends DocumentJSON = DocumentJSON> extends Interva
 
     this.termCount = optimizedTermCount
 
-    return JSON.stringify(this.termCount)
+    return JSON.stringify({ _sampleSize: this.sampleSize, ...this.termCount })
   }
 
   async load(data: string | null, tx: Transaction): Promise<void> {
     this.termCount = {}
+    this.sampleSize = 0
     if (!data) {
       return
     }
     try {
       const parsed = JSON.parse(data)
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        this.termCount = parsed
+        const { _sampleSize, ...rest } = parsed
+        this.sampleSize = typeof _sampleSize === 'number' ? _sampleSize : 0
+        this.termCount = rest
       }
     } catch (e) {
       // Ignore parse error
     }
+  }
+
+  /**
+   * 특정 field/strategy/token의 문서 빈도를 반환합니다.
+   * 통계에 없으면 0을 반환합니다.
+   */
+  getTermCount(field: string, strategy: string, token: string): number {
+    return this.termCount[field]?.[strategy]?.[token] ?? 0
+  }
+
+  /**
+   * 쿼리 토큰 배열에서 최소 빈도(AND 시맨틱스 상한선)를 반환합니다.
+   * 통계가 없거나 sampleSize가 0이면 -1을 반환합니다.
+   */
+  getMinTokenCount(field: string, strategy: string, tokens: string[]): number {
+    if (this.sampleSize === 0 || tokens.length === 0) return -1
+
+    let minCount = Infinity
+    for (let i = 0, len = tokens.length; i < len; i++) {
+      const count = this.getTermCount(field, strategy, tokens[i])
+      if (count < minCount) minCount = count
+    }
+    return minCount === Infinity ? -1 : minCount
+  }
+
+  /**
+   * 통계가 유효한지 여부를 반환합니다.
+   */
+  get hasSampleData(): boolean {
+    return this.sampleSize > 0
+  }
+
+  /**
+   * 통계 수집 시 사용된 샘플 크기를 반환합니다.
+   */
+  getSampleSize(): number {
+    return this.sampleSize
   }
 }

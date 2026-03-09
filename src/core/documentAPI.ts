@@ -59,7 +59,6 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       await this.indexManager.initializeIndices(metadata, isNewlyCreated, tx)
       this.analysisManager.registerBuiltinProviders()
       await this.analysisManager.initializeProviders(tx)
-      await this.analysisManager.flush(tx)
       this._initialized = true
       return tx
     })
@@ -125,6 +124,17 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    */
   async backfillIndices(tx?: Transaction): Promise<number> {
     return this.indexManager.backfillIndices(tx)
+  }
+
+  /**
+   * Flush all interval analysis providers, forcing statistics to be recalculated.
+   * Call this after bulk inserts or periodically to keep statistics fresh.
+   * @param tx The transaction to use
+   */
+  async flushAnalysis(tx?: Transaction): Promise<void> {
+    return this.runWithDefaultWrite(async (tx) => {
+      await this.analysisManager.flush(tx)
+    }, tx)
   }
 
   createDocumentInnerMetadata(indices: DocumentDataplyInnerMetadata['indices']): DocumentDataplyInnerMetadata {

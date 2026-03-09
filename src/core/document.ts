@@ -94,6 +94,15 @@ export class DocumentDataply<T extends DocumentJSON> {
   }
 
   /**
+   * Flush all interval analysis providers, forcing statistics to be recalculated.
+   * Call this after bulk inserts or periodically to keep FTS statistics fresh.
+   * @param tx Optional transaction
+   */
+  async flushAnalysis(tx?: Transaction): Promise<void> {
+    return this.api.flushAnalysis(tx)
+  }
+
+  /**
    * Run a migration if the current schemeVersion is lower than the target version.
    * The callback is only executed when the database's schemeVersion is below the given version.
    * After the callback completes, schemeVersion is updated to the target version.

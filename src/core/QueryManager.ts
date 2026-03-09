@@ -187,7 +187,8 @@ export class QueryManager<T extends DocumentJSON> {
       field: string,
       indexName: string,
       isFtsMatch: boolean,
-      matchTokens?: string[]
+      matchTokens?: string[],
+      coveredFields?: string[]
     }[],
     compositeVerifyConditions: {
       field: string,
@@ -316,7 +317,8 @@ export class QueryManager<T extends DocumentJSON> {
       field: string,
       indexName: string,
       isFtsMatch: boolean,
-      matchTokens?: string[]
+      matchTokens?: string[],
+      coveredFields?: string[]
     }[],
     tx: any
   ): AsyncGenerator<DataplyDocument<T>> {
@@ -353,12 +355,24 @@ export class QueryManager<T extends DocumentJSON> {
           let passed = true
           for (let k = 0, kLen = verifyOthers.length; k < kLen; k++) {
             const other = verifyOthers[k]
-            const fieldValue = flatDoc[other.field]
-            if (fieldValue === undefined) {
-              passed = false
-              break
+            const coveredFields = other.coveredFields
+            let fieldValue: Primitive | Primitive[]
+            if (coveredFields && coveredFields.length > 1) {
+              // 복합 인덱스: 모든 covered field 값으로 복합 키 구성
+              const values: Primitive[] = []
+              let hasMissing = false
+              for (let f = 0, fLen = coveredFields.length; f < fLen; f++) {
+                const v = flatDoc[coveredFields[f]]
+                if (v === undefined) { hasMissing = true; break }
+                values.push(v)
+              }
+              if (hasMissing) { passed = false; break }
+              fieldValue = values
+            } else {
+              fieldValue = flatDoc[other.field]
+              if (fieldValue === undefined) { passed = false; break }
             }
-            const treeValue: DataplyTreeValue<Primitive> = { k: doc._id, v: fieldValue }
+            const treeValue: DataplyTreeValue<Primitive> = { k: doc._id, v: fieldValue as any }
             if (!other.tree.verify(treeValue, other.condition)) {
               passed = false
               break

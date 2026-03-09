@@ -1,5 +1,6 @@
 import type { DataplyTreeValue, DocumentDataplyQuery, DocumentDataplyCondition } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
+import type { FTSTermCount } from './analysis/FTSTermCount'
 import { BPTreeAsync } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 
@@ -183,6 +184,7 @@ export class Optimizer<T extends Record<string, any>> {
 
   /**
    * FTS 타입 인덱스의 선택도를 평가합니다.
+   * FTSTermCount 통계가 있으면 토큰 빈도 기반 동적 score를 산출합니다.
    */
   evaluateFTSCandidate<
     U extends Partial<DocumentDataplyQuery<T>>,
@@ -203,6 +205,31 @@ export class Optimizer<T extends Record<string, any>> {
     const ftsConfig = this.api.indexManager.getFtsConfig(config as any)
     const matchTokens = ftsConfig ? tokenize((condition as any).match as string, ftsConfig) : []
 
+    // 통계 기반 동적 score 산출
+    // MAX_FTS_SCORE=400: 희귀 토큰이 B-Tree orderBy(+200)를 이길 수 있도록 설정
+    // selectivity ~30% 이하 → FTS 우선, ~40% 이상 → orderBy 우선
+    const MAX_FTS_SCORE = 400
+    const MIN_FTS_SCORE = 10
+    const DEFAULT_FTS_SCORE = 90
+
+    let score = DEFAULT_FTS_SCORE
+
+    const termCountProvider = this.api.analysisManager
+      .getProvider<FTSTermCount<T>>('fts_term_count')
+
+    if (termCountProvider && termCountProvider.hasSampleData && ftsConfig && matchTokens.length > 0) {
+      const strategy = ftsConfig.tokenizer === 'ngram'
+        ? `${ftsConfig.gramSize}gram`
+        : ftsConfig.tokenizer
+
+      const minCount = termCountProvider.getMinTokenCount(field, strategy, matchTokens)
+      if (minCount >= 0) {
+        const sampleSize = termCountProvider.getSampleSize()
+        const selectivityRatio = Math.min(minCount / sampleSize, 1)
+        score = Math.round(MAX_FTS_SCORE * (1 - selectivityRatio) + MIN_FTS_SCORE)
+      }
+    }
+
     return {
       tree: treeTx,
       condition: condition as any,
@@ -210,7 +237,7 @@ export class Optimizer<T extends Record<string, any>> {
       indexName,
       isFtsMatch: true,
       matchTokens,
-      score: 90,
+      score,
       compositeVerifyFields: [],
       coveredFields: [field],
       isIndexOrderSupported: false

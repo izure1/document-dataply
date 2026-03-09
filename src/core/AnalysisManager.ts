@@ -38,6 +38,15 @@ export class AnalysisManager<T extends DocumentJSON> {
   }
 
   /**
+   * Get a registered analysis provider by name.
+   * @param name The provider name
+   * @returns The provider instance, or null if not found
+   */
+  getProvider<P extends AnalysisProvider<T> = AnalysisProvider<T>>(name: string): P | null {
+    return (this.providers.get(name) as P) ?? null
+  }
+
+  /**
    * Initialize all registered providers by loading existing data from disk.
    * Should be called after database initialization.
    * @param tx The transaction to use
