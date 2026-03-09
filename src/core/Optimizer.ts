@@ -359,7 +359,23 @@ export class Optimizer<T extends Record<string, any>> {
 
     const driver = candidates[0]
     const driverCoveredFields = new Set(driver.coveredFields)
-    const others = candidates.slice(1).filter(c => !driverCoveredFields.has(c.field))
+    const nonDriverCandidates = candidates.slice(1).filter(c => !driverCoveredFields.has(c.field))
+
+    // coveredFields가 다른 높은 점수 후보의 부분집합인 후보 제거
+    // (candidates는 이미 score 내림차순 정렬됨)
+    const others: typeof nonDriverCandidates = []
+    for (let i = 0, len = nonDriverCandidates.length; i < len; i++) {
+      const candidate = nonDriverCandidates[i]
+      let isSubset = false
+      for (let j = 0, oLen = others.length; j < oLen; j++) {
+        const higher = others[j]
+        if (candidate.coveredFields.every(f => higher.coveredFields.includes(f))) {
+          isSubset = true
+          break
+        }
+      }
+      if (!isSubset) others.push(candidate)
+    }
 
     const compositeVerifyConditions: { field: string, condition: any }[] = []
     for (let i = 0, len = driver.compositeVerifyFields.length; i < len; i++) {

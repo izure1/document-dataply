@@ -327,7 +327,11 @@ export class QueryManager<T extends DocumentJSON> {
     const isCompositeVerify = compositeVerifyConditions.length > 0
     const isVerifyOthers = verifyOthers.length > 0
     const isInfinityLimit = !isFinite(limit)
-    const isReadQuotaLimited = !isInfinityLimit || !isCompositeVerify || !isVerifyOthers || !isFts
+    const isReadQuotaLimited =
+      !isInfinityLimit && // limit이 임의의 유한한 값으로 설정되어 있으며
+      !isCompositeVerify && // 문서를 가져온 후 복합 인덱스 기준으로 2차 필터링할 필요가 없고
+      !isVerifyOthers && // 문서를 가져온 후 다른 인덱스 기준으로 2차 필터링할 필요가 없으며
+      !isFts // 문서를 가져온 후 풀텍스트 검색(FTS) 조건으로 2차 필터링할 필요가 없는 경우
     let currentChunkSize = isReadQuotaLimited ? limit : initialChunkSize
     let chunk: number[] = []
     let chunkSize = 0
