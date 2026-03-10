@@ -261,17 +261,21 @@ export class Optimizer<T extends Record<string, any>> {
    * 비용 계산: effectiveScanCost + sortPenalty
    * - effectiveScanCost: 인덱스 순서 지원 + limit 존재 시 조기 종료 이점 반영
    * - sortPenalty: 인메모리 정렬의 절대 문서 수 기반 비용
+   * - hasUncoveredFilters: 드라이버가 커버하지 못하는 비-FTS 필터 존재 여부
+   *   true일 경우 topK/N 조기 종료를 적용하지 않음
+   *   (uncovered 필터가 행을 탈락시킬 수 있어 topK개 이상 스캔 필요)
    */
   private calculateCost(
     selectivity: number,
     isIndexOrderSupported: boolean,
     orderByField: string | undefined,
     N: number,
-    topK: number
+    topK: number,
+    hasUncoveredFilters: boolean = false
   ): number {
-    // 실질 스캔 비용: 인덱스 순서 지원 + limit 존재 시 조기 종료
+    // 실질 스캔 비용: 인덱스 순서 지원 + limit 존재 + uncovered 필터 없음 시 조기 종료
     const effectiveScanCost =
-      (isIndexOrderSupported && isFinite(topK) && N > 0)
+      (isIndexOrderSupported && isFinite(topK) && N > 0 && !hasUncoveredFilters)
         ? Math.min(topK / N, selectivity)
         : selectivity
 
@@ -370,9 +374,21 @@ export class Optimizer<T extends Record<string, any>> {
           orderByField
         )
         if (candidate) {
+          // FTS 포함 모든 쿼리 필드를 커버하는지 확인
+          // 미커버 필터가 있으면 topK/N 조기 종료 이점을 적용하지 않음
+          const hasUncoveredFilters = ![...queryFields].every(
+            f => candidate.coveredFields.includes(f)
+          )
           candidates.push({
             ...candidate,
-            cost: this.calculateCost(candidate.selectivity, candidate.isIndexOrderSupported, orderByField, N, topK)
+            cost: this.calculateCost(
+              candidate.selectivity,
+              candidate.isIndexOrderSupported,
+              orderByField,
+              N,
+              topK,
+              hasUncoveredFilters
+            )
           } as any)
         }
       }
@@ -388,7 +404,14 @@ export class Optimizer<T extends Record<string, any>> {
         if (candidate) {
           candidates.push({
             ...candidate,
-            cost: this.calculateCost(candidate.selectivity, candidate.isIndexOrderSupported, orderByField, N, topK)
+            cost: this.calculateCost(
+              candidate.selectivity,
+              candidate.isIndexOrderSupported,
+              orderByField,
+              N,
+              topK,
+              true
+            )
           } as any)
         }
       }

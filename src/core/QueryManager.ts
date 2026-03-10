@@ -231,6 +231,8 @@ export class QueryManager<T extends DocumentJSON> {
       keysStream = this.applyCandidateStream(driver as any, undefined, currentOrder)
     }
 
+    console.log(driver, others, compositeVerifyConditions, useIndexOrder)
+
     return {
       keysStream,
       others: others as any,
@@ -300,12 +302,31 @@ export class QueryManager<T extends DocumentJSON> {
     return true
   }
 
-  adjustChunkSize(currentChunkSize: number, chunkTotalSize: number): number {
-    if (chunkTotalSize <= 0) return currentChunkSize
-    const { verySmallChunkSize, smallChunkSize } = this.getFreeMemoryChunkSize()
-    if (chunkTotalSize < verySmallChunkSize) return currentChunkSize * 2
-    if (chunkTotalSize > smallChunkSize) return Math.max(Math.floor(currentChunkSize / 2), 20)
-    return currentChunkSize
+  /**
+   * 최적화 공식: x = x * Math.sqrt(z / n)
+   * @param currentChunkSize 현재 청크 크기
+   * @param matchedCount 매칭된 문서 개수
+   * @param limit 최대 문서 개수
+   * @param chunkTotalSize 청크 내 문서 총 크기
+   * @returns 
+   */
+  adjustChunkSize(currentChunkSize: number, matchedCount: number, limit: number, chunkTotalSize: number): number {
+    if (matchedCount <= 0 || chunkTotalSize <= 0) return currentChunkSize
+
+    // 한 번도 매칭이 안되었을 때를 대비해 분모 0 방지
+    const n = Math.max(matchedCount, 1)
+    // limit이 Infinity일 때를 대비한 안전 장치 (기본값 설정)
+    const z = isFinite(limit) ? limit : currentChunkSize * 10
+    // x = x * Math.sqrt(z / n)
+    const nextChunkSize = Math.ceil(currentChunkSize * Math.sqrt(z / n))
+
+    // 메모리 폭증을 막기 위한 안전 장치
+    const { smallChunkSize } = this.getFreeMemoryChunkSize()
+    const avgDocSize = chunkTotalSize / currentChunkSize
+    const maxSafeChunkSize = Math.max(Math.floor(smallChunkSize / avgDocSize), 20)
+    const finalChunkSize = Math.max(Math.min(nextChunkSize, maxSafeChunkSize), 20)
+
+    return finalChunkSize
   }
 
   async *processChunkedKeysWithVerify(
@@ -340,6 +361,7 @@ export class QueryManager<T extends DocumentJSON> {
     let chunk: number[] = []
     let chunkSize = 0
     let dropped = 0
+    let nAccumulated = 0 // 누적해서 찾아낸 문서(n)의 개수
 
     const processChunk = async (pks: number[]) => {
       const docs: DataplyDocument<T>[] = []
@@ -392,8 +414,10 @@ export class QueryManager<T extends DocumentJSON> {
         docs.push(doc)
       }
 
+      nAccumulated += docs.length
+
       if (!isReadQuotaLimited) {
-        currentChunkSize = this.adjustChunkSize(currentChunkSize, chunkTotalSize)
+        currentChunkSize = this.adjustChunkSize(currentChunkSize, nAccumulated, limit, chunkTotalSize)
       }
       return docs
     }
