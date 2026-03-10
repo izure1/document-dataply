@@ -231,8 +231,6 @@ export class QueryManager<T extends DocumentJSON> {
       keysStream = this.applyCandidateStream(driver as any, undefined, currentOrder)
     }
 
-    console.log(driver, others, compositeVerifyConditions, useIndexOrder)
-
     return {
       keysStream,
       others: others as any,
