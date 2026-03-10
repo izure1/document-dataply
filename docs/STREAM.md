@@ -1,111 +1,45 @@
-# Stream Guide: High-Performance Data Processing (STREAM.md)
+# 🌊 Seamless Massive Data Processing (Stream Architecture)
 
-`document-dataply` is designed to operate safely without memory overhead even when processing millions of documents. This document explains the core design philosophy of streaming data processing and its technical background.
+When reading a few hundred pieces of data, there's no need to worry about server memory shortages. However, processing queries where the count is unknown or reaches millions simultaneously poses the risk of exceeding physical memory (RAM) limits and causing a forced server shutdown (OOM).
+
+This document explains the **Stream** processing solution that defends against this.
 
 ---
 
-## 1. Core Mechanism: Stream (Async Iterator)
+## 1. Limitations of Drain() Mode
+`drain()` is the operation of bringing fetched results into a commonly used JavaScript Array all at once.
+While easy to handle, if it derives 1 million results, all data pours into server variables simultaneously, posing the risk of immediate memory exhaustion.
 
-The most recommended way to retrieve data is through **`stream()`**. This method does not load all data into memory at once; instead, it reads documents asynchronously one by one as needed.
+## 2. Recommended Solution: Stream-based Supply
 
-### Key Advantages
-- **Extremely Low Memory Usage**: Even with tens of thousands of results, only the document currently being processed is held in memory.
-- **Immediate Responsiveness**: Processing can begin as soon as the first document is loaded, without waiting for the entire dataset to be read.
-
-> [!CAUTION]
-> **`orderBy` and Stream Performance**: Generally, using `orderBy` negates the memory-efficiency benefits of streaming because the engine must load and sort all matching documents in memory first.
-> 
-> However, **streaming remains efficient if the query condition field and the `orderBy` field are identical (and the field is indexed)**. In this case, the engine reads data directly from the index in the requested order, maintaining the stream's advantages.
-> 
-> ```typescript
-> // If 'status' is indexed, this query is highly efficient
-> // as the condition and sort field are the same.
-> const query = db.select({ status: 'active' }, { orderBy: 'status' });
-> 
-> // This stream starts immediately with minimal memory overhead.
-> for await (const doc of query.stream()) { ... }
-> ```
-
-### Usage Example
-You can easily use the `for await...of` syntax to iterate through results as if they were in a standard array.
+To prevent server crashes and handle millions of queries, the standard approach is to use a **Stream** that supplies results lazily.
+A stream functions as an asynchronous iterator (`Iterator`), allowing only 1 document in memory per cycle (1 `for` loop iteration). Once used, the engine immediately discards the data (GC), keeping memory occupancy consistently light from beginning to end.
 
 ```typescript
-const query = db.select({ status: 'active' });
+// 1. Traversal processing using the stream iterator
+const usersQuery = db.select({});
 
-for await (const doc of query.stream()) {
-  // Only one document is loaded in memory at a time
-  console.log(`ID: ${doc._id}, Name: ${doc.name}`);
-  await processData(doc);
+for await (const user of usersQuery.stream()) {
+  // Even if there are a million results, only 1 item passes through this block and is discarded.
+  await sendBatchMailApi(user.email);
 }
 ```
 
 ---
 
-## 2. Alternative: Drain (Array)
+## 3. Chunking Control Logic: I/O Optimization
 
-If you prefer to receive all results at once in a standard array format, use the **`drain()`** method.
+You might wonder, "If I fetch them one by one, won't 1 million disk accesses (I/O) occur and make it too slow?" `document-dataply` cleverly shatters this bottleneck.
 
-### Characteristics and Limitations
-- **Convenience**: Since the return value is an array, you can immediately use standard JavaScript array methods like `.map()`, `.filter()`, and `.reduce()`.
-- **Precaution**: If the result set is very large, the application may terminate due to an Out of Memory (OOM) error. Always prefer `stream()` when the amount of data is uncertain.
+The following mechanism operates completely hidden within the engine:
+1. **Memory Detection**: Upon startup, the engine gauges the server's safely available free memory (`os.freemem()`) in real time.
+2. **Dynamic Chunk Loading**: While the front-end developer receives them 1 by 1, the back-end engine calculates the amount its free memory can withstand and safely chunks that calculated amount from the disk at once.
+3. When the fetched chunk array runs out, it triggers disk I/O once again to fill the next chunk.
 
-### Internal Implementation
-`drain()` is not a completely separate logic. Internally, it is implemented to iterate through the `stream()` described above until the end, collecting all results into an array. Therefore, it benefits equally from the page loading and cache optimizations described below.
-
-```typescript
-// Useful for processing small amounts of data
-const activeUsers = await db.select({ role: 'admin' }).drain();
-const names = activeUsers.map(u => u.name);
-```
+Ultimately, the operator can enjoy the full performance without needing to design any disk I/O or set up memory leak defenses.
 
 ---
 
-## 3. Technical Details: Internal Principles
-
-`document-dataply` follows the design principles of modern Relational Database Management Systems (RDBMS) for high Input/Output (IO) performance.
-
-### Page-Unit Loading
-When retrieving documents from storage, the engine does not read from the disk entry by entry. Instead, it reads data in **Page units** for efficiency. This minimizes unnecessary disk I/O and significantly increases processing speed.
-
-### LRU (Least Recently Used) Cache Strategy
-Loaded pages are managed within the internal buffer pool of the engine.
-- **Efficient Resource Management**: The LRU algorithm ensures that frequently accessed data remains in memory, while least recently used data is evicted, guaranteeing efficient resource utilization.
-- **Consistent Performance**: Frequently repeated queries leverage cached pages for excellent response times.
-
----
-
-## 4. Practical Usage Patterns
-
-### Bulk Updates and Deletions
-Modification operations such as `partialUpdate`, `fullUpdate`, and `delete` also utilize this streaming mechanism internally. This is why heavy tasks like deleting millions of records can be performed safely without memory concerns.
-
-```typescript
-// Safe for large datasets as it operates via streaming internally
-const deletedCount = await db.delete({ status: 'old' });
-```
-
-### Batch Processing (Chunking) Pattern
-If you want to use a stream but process data in batches (e.g., sending groups of documents to an external API), you can implement a chunking pattern:
-
-```typescript
-let chunk = [];
-const CHUNK_SIZE = 500;
-
-for await (const doc of db.select({ type: 'export' }).stream()) {
-  chunk.push(doc);
-  if (chunk.length >= CHUNK_SIZE) {
-    await sendBatchToCloud(chunk);
-    chunk = [];
-  }
-}
-
-// Process remaining data
-if (chunk.length > 0) await sendBatchToCloud(chunk);
-```
-
----
-
-## 5. Conclusion: Choosing the Right Method
-
-- **Always consider `stream()` first**: It is optimal for server-side environments where the data volume is unpredictable or where memory efficiency is critical.
-- **Use `drain()` only for small datasets**: Choose this method when the result set is guaranteed to be small (e.g., a few hundred rows) and quick implementation is preferred.
+## Engine Processing Choice Guideline (Summary)
+- **When the result volume is small (hundreds/thousands or less)** 👉 Use array conversion (`drain()`) for convenience.
+- **When the result count is unknown or exceeds tens of thousands** 👉 Unconditionally enforce the delayed pipeline (`stream()`) structure to prevent server crashes.
