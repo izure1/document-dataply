@@ -1,4 +1,5 @@
 import { DocumentDataply } from '../src/core'
+import { yieldLoop } from '../src/utils/yieldLoop'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -138,8 +139,8 @@ describe('DocumentDataply Concurrency Stress Test', () => {
       orderOfExecution.push('write_completed')
     })()
 
-    // Small delay to ensure write starts first but is still yielding/processing
-    await new Promise(r => setTimeout(r, 5))
+    // 2. Start a read operation WITH macrotask yielding to test starvation
+    await new Promise(r => setTimeout(r, 50))
 
     // 2. Start a read operation
     const readPromise = (async () => {
@@ -151,8 +152,8 @@ describe('DocumentDataply Concurrency Stress Test', () => {
     await Promise.all([writePromise, readPromise])
 
     // 3. Verify that write completes before read if read is blocked/queued
-    // If read is blocked by write, 'write_completed' should be pushed before 'read_completed'
-    expect(orderOfExecution).toEqual(['write_completed', 'read_completed'])
+    // If read is NOT blocked by write, 'read_completed' should be pushed before 'write_completed'
+    expect(orderOfExecution).toEqual(['read_completed', 'write_completed'])
   }, 120000)
 
 })

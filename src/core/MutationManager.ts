@@ -10,8 +10,10 @@ import type { DocumentDataplyAPI } from './documentAPI'
 import { Transaction, BPTreeAsyncTransaction } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 import { catchPromise } from '../utils/catchPromise'
+import { DeadlineChunker } from '../utils/DeadlineChunker'
 
 export class MutationManager<T extends DocumentJSON> {
+  private chunker = new DeadlineChunker()
   constructor(private api: DocumentDataplyAPI<T>) { }
 
   private async insertDocumentInternal(document: T, tx: Transaction): Promise<{
@@ -138,10 +140,14 @@ export class MutationManager<T extends DocumentJSON> {
           }
         }
 
-        const [error] = await catchPromise(treeTx.batchInsert(batchInsertData))
-        if (error) {
-          throw error
-        }
+        // Chunk batchInsertData to prevent Node.js event loop starvation
+        await this.chunker.processInChunks(batchInsertData, async (chunk) => {
+          const [error] = await catchPromise(treeTx.batchInsert(chunk))
+          if (error) {
+            throw error
+          }
+        })
+
         const res = await treeTx.commit()
         if (!res.success) {
           throw (res as any).error
