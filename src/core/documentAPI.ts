@@ -46,7 +46,15 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     this.mutationManager = new MutationManager(this)
     this.metadataManager = new MetadataManager(this)
     this.documentFormatter = new DocumentFormatter<T>()
-    this.analysisManager = new AnalysisManager(this)
+    this.analysisManager = new AnalysisManager(
+      this,
+      options.analysisSchedule ?? '* */1 * * *',
+      options.analysisSampleSize ?? 1000
+    )
+
+    this.hook.onceAfter('close', async () => {
+      this.analysisManager.close()
+    })
 
     this.hook.onceAfter('init', async (tx, isNewlyCreated) => {
       if (isNewlyCreated) {
@@ -59,6 +67,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       await this.indexManager.initializeIndices(metadata, isNewlyCreated, tx)
       this.analysisManager.registerBuiltinProviders()
       await this.analysisManager.initializeProviders(tx)
+      this.analysisManager.triggerCron()
       this._initialized = true
       return tx
     })

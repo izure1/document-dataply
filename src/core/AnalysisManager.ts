@@ -5,15 +5,35 @@ import type {
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
 import type { AnalysisProvider } from './AnalysisProvider'
+import { Cron } from 'croner'
+import { Transaction } from 'dataply'
 import { RealtimeAnalysisProvider } from './RealtimeAnalysisProvider'
 import { IntervalAnalysisProvider } from './IntervalAnalysisProvider'
-import { Transaction } from 'dataply'
 import { BuiltinAnalysisProviders } from './analysis'
 
 export class AnalysisManager<T extends DocumentJSON> {
   private providers: Map<string, AnalysisProvider<T>> = new Map()
+  private cron: Cron | null = null
+  private flushing: boolean = false
 
-  constructor(private api: DocumentDataplyAPI<T>) { }
+  constructor(private api: DocumentDataplyAPI<T>, schedule: string, public readonly sampleSize: number) {
+    this.cron = new Cron(schedule, async () => {
+      if (this.flushing) return
+      console.log('AnalysisManager: Flushing analysis...')
+      await this.api.flushAnalysis()
+      console.log('AnalysisManager: Analysis flushed.')
+    })
+  }
+
+  /**
+   * Stop the background analysis cron job.
+   */
+  close(): void {
+    if (this.cron && this.cron.isRunning()) {
+      this.cron.stop()
+      this.cron = null
+    }
+  }
 
   /**
    * Register all built-in analysis providers.
@@ -73,6 +93,15 @@ export class AnalysisManager<T extends DocumentJSON> {
   }
 
   /**
+   * Trigger the background analysis cron job.
+   */
+  triggerCron(): void {
+    if (this.cron && !this.cron.isRunning()) {
+      this.cron.trigger()
+    }
+  }
+
+  /**
    * Notify all realtime providers that documents were inserted.
    * Data is persisted immediately after each provider processes the mutation.
    * @param documents The flattened documents that were inserted
@@ -125,11 +154,16 @@ export class AnalysisManager<T extends DocumentJSON> {
    * @param tx The transaction to use (must be a write transaction)
    */
   async flush(tx: Transaction): Promise<void> {
+    if (this.flushing) {
+      throw new Error('Cannot flush analysis while analysis is already flushing.')
+    }
+    this.flushing = true
     for (const [name, provider] of this.providers) {
       if (provider instanceof IntervalAnalysisProvider) {
         await this.setAnalysisData(name, await provider.serialize(tx), tx)
       }
     }
+    this.flushing = false
   }
 
   /**

@@ -13,7 +13,7 @@ export class FTSTermCount<T extends DocumentJSON = DocumentJSON> extends Interva
   private sampleSize: number = 0
 
   async serialize(tx: Transaction): Promise<string> {
-    const docs = await this.sample({ count: 1000 }, tx)
+    const docs = await this.sample({ count: this.api.analysisManager.sampleSize }, tx)
 
     this.termCount = {}
     this.sampleSize = docs.length

@@ -211,5 +211,14 @@ export type CreateIndexOption<T extends DocumentJSON> =
   CreateIndexBTreeOption<T> | CreateIndexFTSOption<T>
 
 export interface DocumentDataplyOptions extends DataplyOptions {
-  // indices removed - use createIndex() method instead
+  /**
+   * The cron expression for the analysis schedule.
+   * If not provided, default is '* *\/1 * * *' (every 1 hour)
+   */
+  analysisSchedule?: string
+  /**
+   * The sample size for the analysis.
+   * If not provided, default is 1000
+   */
+  analysisSampleSize?: number
 }

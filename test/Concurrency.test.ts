@@ -123,4 +123,36 @@ describe('DocumentDataply Concurrency Stress Test', () => {
     expect(all.length).toBe(125)
   }, 120000)
 
+  test('should block read operations during a write operation', async () => {
+    // Insert initial data fast
+    await db.insert({ name: 'Initial', count: 0 })
+
+    const orderOfExecution: string[] = []
+
+    // 1. Start a slow write operation (large batch insert)
+    const largeBatch = Array.from({ length: 5000 }, (_, i) => ({ name: `Batch_${i}`, count: i }))
+    
+    // Promise for write
+    const writePromise = (async () => {
+      await db.insertBatch(largeBatch)
+      orderOfExecution.push('write_completed')
+    })()
+
+    // Small delay to ensure write starts first but is still yielding/processing
+    await new Promise(r => setTimeout(r, 5))
+
+    // 2. Start a read operation
+    const readPromise = (async () => {
+      const docs = await db.select({}).drain()
+      orderOfExecution.push('read_completed')
+      return docs
+    })()
+
+    await Promise.all([writePromise, readPromise])
+
+    // 3. Verify that write completes before read if read is blocked/queued
+    // If read is blocked by write, 'write_completed' should be pushed before 'read_completed'
+    expect(orderOfExecution).toEqual(['write_completed', 'read_completed'])
+  }, 120000)
+
 })
