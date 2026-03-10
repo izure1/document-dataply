@@ -87,6 +87,31 @@ main();
 
 ---
 
+## 💡 Common Patterns
+
+### Batch Processing for Performance
+```typescript
+const largeData = Array.from({ length: 10000 }, (_, i) => ({
+  name: `User_${i}`,
+  age: Math.floor(Math.random() * 50),
+  tags: ['imported']
+}));
+
+// Much faster than individual inserts
+await db.insertBatch(largeData);
+```
+
+### Complex Queries with Operators
+```typescript
+const activeSeniors = await db.select({
+  age: { gte: 65 },
+  status: { equal: 'active' },
+  name: { like: 'John%' }
+}).drain();
+```
+
+---
+
 ## 📚 Detailed Manual
 
 Please refer to the following documents for detailed usage of each feature and the library's core architecture.

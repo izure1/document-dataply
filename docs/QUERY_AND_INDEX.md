@@ -61,7 +61,16 @@ Beyond simple value comparisons, powerful operators can be used.
 
 > **🚨 Mandatory Requirement (Index Enforcement)**
 > The fields used as search conditions in the `select` query or sorting criteria in `orderBy` **must have an index created beforehand.** Requesting a query on a field without an index will result in a failure as the query is impossible.
-> If you wish to narrow down data using secondary fields without indices, you must first retrieve the data using essential indexed fields, and then manually filter them using the JavaScript built-in `.filter()` method on the resulting array (`drain()`).
+>
+> **💡 Manual Filter Fallback**
+> If you need to filter by a field that isn't indexed (e.g., a one-time operation where creating an index is overkill), retrieve the broader dataset using an indexed field first, then use JavaScript's `.filter()`:
+> ```typescript
+> // 1. Fetch by indexed field 'category'
+> const items = await db.select({ category: 'electronics' }).drain();
+>
+> // 2. Manually filter by non-indexed 'discountCode'
+> const discounted = items.filter(item => item.discountCode === 'SUMMER24');
+> ```
 
 ---
 
@@ -71,8 +80,15 @@ This is a dedicated index feature for finding words within long text bodies. It 
 
 ### Creating a Full-Text Index
 ```typescript
-// Set type to 'fts'. (whitespace: splits text based on spaces)
-await db.createIndex('idx_content', { type: 'fts', fields: 'content', tokenizer: 'whitespace' });
+// Set type to 'fts'.
+// Supports 'whitespace' (splits by space) or 'ngram' (splits by character length) tokenizers.
+// When using 'ngram', you can specify 'gramSize' (default is 2).
+await db.createIndex('idx_content', { 
+  type: 'fts', 
+  fields: 'content', 
+  tokenizer: 'ngram',
+  gramSize: 3 
+});
 ```
 
 ### Utilizing the `match` Operator
@@ -99,6 +115,16 @@ const results = await db.select(
     sortOrder: 'desc'    // Descending (desc) or ascending (asc) order
   }
 ).drain();
+```
+
+### Complex Query Example
+```typescript
+const searchResults = await db.select({
+  status: 'published',
+  views: { gte: 1000 },
+  category: { or: ['Tech', 'Science'] },
+  title: { like: '%Guide%' }
+}).drain();
 ```
 
 **💡 Optimizer Acceleration**  

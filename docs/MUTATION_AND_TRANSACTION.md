@@ -105,13 +105,24 @@ These are utilities that take final responsibility for database integrity or que
 
 - **Closing the Database (`close`)**
   An essential defensive method that must be called before the application terminates completely. It releases disk I/O locks, stops periodic analyzers (Interval Providers), and perfectly synchronizes (Flushes) background logs (WAL) remaining in memory to the file for error recovery to prevent loss.
+
   ```typescript
+  // Essential: Flush logs and release locks
   await db.close();
+
+  // Advanced: Handling process termination
+  process.on('SIGINT', async () => {
+    console.log('Closing database safely...');
+    await db.close();
+    process.exit(0);
+  });
   ```
 
 - **Querying Metadata (`getMetadata`)**
   Allows you to see internal system information at a glance, such as the opened database's current schema version (`schemeVersion`), the last inserted unique identifier (`lastInsertId`), and the list of registered indices (`indices`).
   ```typescript
   const meta = await db.getMetadata();
-  console.log('Current Schema Version:', meta.schemeVersion);
+  console.log('Schema Version:', meta.schemeVersion);
+  console.log('Total Indices:', meta.indices.length);
+  console.log('Registered Indices:', meta.indices.map(i => i.name).join(', '));
   ```

@@ -17,8 +17,12 @@ When searching data, reading through all documents from start to finish (Full Sc
 
 This feature is designed for finding specific words within documents, rather than relying on simple exact matches.
 
-- **Periodic Token Collection**: When data is inserted, the background **`IntervalAnalysisProvider`** automatically runs at set intervals to break down text into token (word) units and updates their frequencies.
+- **Periodic Token Collection**: When data is inserted, the background **`IntervalAnalysisProvider`** automatically runs at set intervals to break down text into token units (supporting both **`whitespace`** and **`ngram`** with configurable **`gramSize`**) and updates their frequencies.
 - Users can manually call the `flushAnalysis()` method to immediately reflect the latest statistics (Flush) if necessary.
+  ```typescript
+  // Force immediate update of FTS statistics (Token collection)
+  await db.flushAnalysis();
+  ```
 - During keyword searches, instead of scanning entire documents, the engine instantly pinpoints the target documents by referring to the frequency table (index) built by this analyzer.
 
 ---
@@ -27,8 +31,8 @@ This feature is designed for finding specific words within documents, rather tha
 
 Loading millions of records into an array in memory at once can cause the server to crash due to out-of-memory (OOM) errors. This core technology prevents such scenarios.
 
-- **Dynamic Free Memory Tracking**: The database checks real-time available free memory (`os.freemem()`).
-- **Dynamic Chunking (`adjustChunkSize`)**: While the user might request the entire dataset, the internal engine sequentially fetches data from the disk in safe units (chunks) that it calculates based on current capacity. This allows querying virtually infinite amounts of data while maintaining a constant memory footprint.
+- **Dynamic Free Memory Tracking**: The database checks real-time available free memory.
+- **Dynamic Chunking**: While the user might request the entire dataset, the internal engine sequentially fetches data from the disk in safe units (chunks) that it calculates based on current capacity. This allows querying virtually infinite amounts of data while maintaining a constant memory footprint.
 
 ---
 

@@ -25,6 +25,36 @@ for await (const user of usersQuery.stream()) {
 }
 ```
 
+### Advanced: Aggregating Data with Streams
+```typescript
+let totalAge = 0;
+let count = 0;
+
+for await (const user of usersQuery.stream()) {
+  totalAge += user.age;
+  count++;
+}
+
+console.log('Average Age:', totalAge / count);
+```
+
+### Handling Errors in Streams
+```typescript
+// Example of error handling within a stream
+try {
+  for await (const user of usersQuery.stream()) {
+    // Process user data
+    if (user.status === 'error') {
+      throw new Error(`User processing failed for ${user.id}`);
+    }
+    await processUserData(user);
+  }
+} catch (error) {
+  console.error('An error occurred during stream processing:', error.message);
+  // Implement retry logic, logging, or other error recovery mechanisms
+}
+```
+
 ---
 
 ## 3. Chunking Control Logic: I/O Optimization
@@ -32,7 +62,7 @@ for await (const user of usersQuery.stream()) {
 You might wonder, "If I fetch them one by one, won't 1 million disk accesses (I/O) occur and make it too slow?" `document-dataply` cleverly shatters this bottleneck.
 
 The following mechanism operates completely hidden within the engine:
-1. **Memory Detection**: Upon startup, the engine gauges the server's safely available free memory (`os.freemem()`) in real time.
+1. **Memory Detection**: Upon startup, the engine gauges the server's safely available free memory in real time.
 2. **Dynamic Chunk Loading**: While the front-end developer receives them 1 by 1, the back-end engine calculates the amount its free memory can withstand and safely chunks that calculated amount from the disk at once.
 3. When the fetched chunk array runs out, it triggers disk I/O once again to fill the next chunk.
 
