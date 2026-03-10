@@ -1,5 +1,4 @@
 import { DocumentDataply } from '../src/core'
-import { yieldLoop } from '../src/utils/yieldLoop'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -132,7 +131,7 @@ describe('DocumentDataply Concurrency Stress Test', () => {
 
     // 1. Start a slow write operation (large batch insert)
     const largeBatch = Array.from({ length: 5000 }, (_, i) => ({ name: `Batch_${i}`, count: i }))
-    
+
     // Promise for write
     const writePromise = (async () => {
       await db.insertBatch(largeBatch)

@@ -19,9 +19,7 @@ export class AnalysisManager<T extends DocumentJSON> {
   constructor(private api: DocumentDataplyAPI<T>, schedule: string, public readonly sampleSize: number) {
     this.cron = new Cron(schedule, async () => {
       if (this.flushing) return
-      console.log('AnalysisManager: Flushing analysis...')
       await this.api.flushAnalysis()
-      console.log('AnalysisManager: Analysis flushed.')
     })
   }
 
