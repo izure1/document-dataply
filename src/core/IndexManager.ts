@@ -9,7 +9,7 @@ import type {
   FlattenedDocumentJSON
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
-import { BPTreeAsync, Transaction, BPTreeAsyncTransaction } from 'dataply'
+import { BPTreeAsync, Transaction } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 
@@ -266,21 +266,20 @@ export class IndexManager<T extends DocumentJSON> {
         return 0
       }
 
-      let indexTxMap: Record<
+      // Collect all entries per index for bulkLoad (empty tree optimization)
+      const bulkData: Record<
         string,
-        BPTreeAsyncTransaction<string | number, DataplyTreeValue<Primitive>>
+        [number | string, DataplyTreeValue<Primitive>][]
       > = {}
 
       for (const indexName of backfillTargets) {
         const tree = this.trees.get(indexName)
         if (tree && indexName !== '_id') {
-          indexTxMap[indexName] = await tree.createTransaction()
+          bulkData[indexName] = []
         }
       }
 
       let backfilledCount = 0
-      let chunkCount = 0
-      const CHUNK_SIZE = 1000
 
       const idTree = this.trees.get('_id')
       if (!idTree) {
@@ -298,12 +297,10 @@ export class IndexManager<T extends DocumentJSON> {
 
         for (let i = 0, len = backfillTargets.length; i < len; i++) {
           const indexName = backfillTargets[i]
-          if (!(indexName in indexTxMap)) continue
+          if (!(indexName in bulkData)) continue
 
           const config = this.registeredIndices.get(indexName)
           if (!config) continue
-
-          const btx = indexTxMap[indexName]
 
           if (config.type === 'fts') {
             const primaryField = this.getPrimaryField(config)
@@ -311,57 +308,40 @@ export class IndexManager<T extends DocumentJSON> {
             if (v === undefined || typeof v !== 'string') continue
             const ftsConfig = this.getFtsConfig(config)
             const tokens = ftsConfig ? tokenize(v, ftsConfig) : [v]
-            const batchInsertData: [number | string, DataplyTreeValue<Primitive>][] = []
-            for (let i = 0, len = tokens.length; i < len; i++) {
-              const token = tokens[i]
+            for (let j = 0, tLen = tokens.length; j < tLen; j++) {
+              const token = tokens[j]
               const keyToInsert = this.getTokenKey(k as number, token as string)
               const entry = { k: k as number, v: token }
-              batchInsertData.push([keyToInsert, entry])
+              bulkData[indexName].push([keyToInsert, entry])
             }
-            await btx.batchInsert(batchInsertData)
           }
           else {
             const indexVal = this.getIndexValue(config, flatDoc)
             if (indexVal === undefined) continue
             const entry = { k: k as number, v: indexVal }
-            const batchInsertData: [number | string, DataplyTreeValue<Primitive>][] = [[k, entry as any]]
-            await btx.batchInsert(batchInsertData)
+            bulkData[indexName].push([k, entry as any])
           }
         }
         backfilledCount++
-        chunkCount++
-
-        if (chunkCount >= CHUNK_SIZE) {
-          try {
-            for (const btx of Object.values(indexTxMap)) {
-              await btx.commit()
-            }
-          } catch (err) {
-            for (const btx of Object.values(indexTxMap)) {
-              await btx.rollback()
-            }
-            throw err
-          }
-
-          for (const indexName of backfillTargets) {
-            const tree = this.trees.get(indexName)
-            if (tree && indexName !== '_id') {
-              indexTxMap[indexName] = await tree.createTransaction()
-            }
-          }
-          chunkCount = 0
-        }
       }
 
-      if (chunkCount > 0) {
+      // Use bulkLoad for each new index (tree is guaranteed empty)
+      for (const indexName of backfillTargets) {
+        const tree = this.trees.get(indexName)
+        if (!tree || indexName === '_id') continue
+        const entries = bulkData[indexName]
+        if (!entries || entries.length === 0) continue
+
+        const treeTx = await tree.createTransaction()
         try {
-          for (const btx of Object.values(indexTxMap)) {
-            await btx.commit()
+          await treeTx.bulkLoad(entries)
+          const res = await treeTx.commit()
+          if (!res.success) {
+            await treeTx.rollback()
+            throw (res as any).error
           }
         } catch (err) {
-          for (const btx of Object.values(indexTxMap)) {
-            await btx.rollback()
-          }
+          await treeTx.rollback()
           throw err
         }
       }

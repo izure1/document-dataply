@@ -18,6 +18,15 @@ export class MutationManager<T extends DocumentJSON> {
     private logger: any // Fallback until logger is exported from dataply
   ) { }
 
+  private async isTreeEmpty(tree: any): Promise<boolean> {
+    try {
+      const root = await tree.getNode(tree.rootId)
+      return root.leaf && root.values.length === 0
+    } catch {
+      return true
+    }
+  }
+
   private async insertDocumentInternal(document: T, tx: Transaction): Promise<{
     pk: number
     id: number
@@ -147,19 +156,27 @@ export class MutationManager<T extends DocumentJSON> {
           }
         }
 
-        // Chunk batchInsertData to prevent Node.js event loop starvation
-        const initMaxSize = 50000
-        const initChunkSize = Math.min(
-          initMaxSize,
-          Math.max(initMaxSize, Math.floor(batchInsertData.length / 100 * 5))
-        )
-        const chunker = new DeadlineChunker(initChunkSize)
-        await chunker.processInChunks(batchInsertData, async (chunk) => {
-          const [error] = await catchPromise(treeTx.batchInsert(chunk))
+        // Use bulkLoad for empty trees (new indices), batchInsert for existing trees
+        const isEmptyTree = await this.isTreeEmpty(tree)
+        if (isEmptyTree) {
+          const [error] = await catchPromise(treeTx.bulkLoad(batchInsertData))
           if (error) {
             throw error
           }
-        })
+        } else {
+          const initMaxSize = 50000
+          const initChunkSize = Math.min(
+            initMaxSize,
+            Math.max(initMaxSize, Math.floor(batchInsertData.length / 100 * 5))
+          )
+          const chunker = new DeadlineChunker(initChunkSize)
+          await chunker.processInChunks(batchInsertData, async (chunk) => {
+            const [error] = await catchPromise(treeTx.batchInsert(chunk))
+            if (error) {
+              throw error
+            }
+          })
+        }
 
         const res = await treeTx.commit()
         if (!res.success) {
