@@ -113,6 +113,7 @@ export class IndexManager<T extends DocumentJSON> {
     }
 
     // Initialize trees
+    const perIndexCapacity = Math.floor(this.api.options.pageCacheCapacity / Object.keys(this.api.indices).length)
     for (const indexName of targetIndices.keys()) {
       if (metadata.indices[indexName]) {
         const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
@@ -122,7 +123,10 @@ export class IndexManager<T extends DocumentJSON> {
             (this.api as any).txContext,
             indexName
           ),
-          this.api.comparator as any
+          this.api.comparator as any,
+          {
+            capacity: perIndexCapacity
+          }
         )
         await tree.init()
         this.trees.set(indexName, tree as any)
@@ -171,6 +175,7 @@ export class IndexManager<T extends DocumentJSON> {
         this.fieldToIndices.get(field)!.push(name)
       }
 
+      const perIndexCapacity = Math.floor(this.api.options.pageCacheCapacity / Object.keys(this.api.indices).length)
       const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
         new DocumentSerializeStrategyAsync<Primitive>(
           (this.api as any).rowTableEngine.order,
@@ -178,7 +183,10 @@ export class IndexManager<T extends DocumentJSON> {
           (this.api as any).txContext,
           name
         ),
-        this.api.comparator as any
+        this.api.comparator as any,
+        {
+          capacity: perIndexCapacity
+        }
       )
       await tree.init()
       this.trees.set(name, tree as any)

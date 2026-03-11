@@ -160,6 +160,7 @@ export class MutationManager<T extends DocumentJSON> {
 
         const res = await treeTx.commit()
         if (!res.success) {
+          await treeTx.rollback()
           throw (res as any).error
         }
       }
