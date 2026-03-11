@@ -101,7 +101,12 @@ export class MutationManager<T extends DocumentJSON> {
       }
 
       // 3. Batch Data Insertion
-      const pks = await this.api.insertBatch(dataplyDocuments, true, tx)
+      const pks: number[] = []
+      const documentChunker = new DeadlineChunker(10000)
+      await documentChunker.processInChunks(dataplyDocuments, async (chunk) => {
+        const res = await this.api.insertBatch(chunk, true, tx)
+        pks.push(...res)
+      })
 
       // 4. Update PKs for indexing
       for (let i = 0, len = pks.length; i < len; i++) {
@@ -140,7 +145,8 @@ export class MutationManager<T extends DocumentJSON> {
         }
 
         // Chunk batchInsertData to prevent Node.js event loop starvation
-        const chunker = new DeadlineChunker()
+        const chunker = new DeadlineChunker(30000)
+        console.log(batchInsertData.length)
         await chunker.processInChunks(batchInsertData, async (chunk) => {
           const [error] = await catchPromise(treeTx.batchInsert(chunk))
           if (error) {

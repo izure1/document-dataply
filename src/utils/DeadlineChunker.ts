@@ -19,8 +19,8 @@ export class DeadlineChunker {
    */
   private alpha: number
 
-  constructor(targetMs: number = 5, alpha: number = 0.5) {
-    this.chunkSize = 0
+  constructor(startChunkSize: number = 0, targetMs: number = 5, alpha: number = 0.5) {
+    this.chunkSize = startChunkSize
     this.targetMs = targetMs
     this.alpha = alpha
     this.ewmaMs = null
@@ -51,7 +51,9 @@ export class DeadlineChunker {
   async processInChunks<T>(items: T[], processFn: (chunk: T[]) => Promise<void>): Promise<void> {
     let i = 0
     let len = items.length
-    this.chunkSize = Math.floor(items.length / 100 * 5) // 초기값은 전체의 5%를 청크 사이즈로 설정
+    if (this.chunkSize === 0) {
+      this.chunkSize = Math.floor(items.length / 100 * 5) // 초기값은 전체의 5%를 청크 사이즈로 설정
+    }
     while (i < len) {
       const chunk = items.slice(i, i + this.chunkSize)
       const count = chunk.length
