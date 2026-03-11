@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773190956339,
+  "lastUpdate": 1773193100798,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -3664,6 +3664,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 99.77,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "e8dd7bbfef2bbef3c4a9624dbff9954d2f8a6f26",
+          "message": "performance: 배치 작업 퍼포먼스 제한을 제거합니다.",
+          "timestamp": "2026-03-11T10:36:00+09:00",
+          "tree_id": "fe57dc8d9d9005a87f77290e700670bc182c9f06",
+          "url": "https://github.com/izure1/document-dataply/commit/e8dd7bbfef2bbef3c4a9624dbff9954d2f8a6f26"
+        },
+        "date": 1773193099963,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 15893.03,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 22.62,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 53.37,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 109.17,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 7092.12,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 102.82,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 99.34,
             "unit": "ms"
           }
         ]
