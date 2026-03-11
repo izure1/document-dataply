@@ -353,4 +353,53 @@ describe('Document Indexing Options', () => {
 
     await db.close()
   })
+
+  test('Should rebuild all indices when no arguments provided', async () => {
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
+
+    await db.init()
+    await db.insert({ name: 'Alice', age: 30 })
+    await db.insert({ name: 'Bob', age: 25 })
+
+    // Verify initial state
+    let results = await db.select({ name: 'Alice' }).drain()
+    expect(results).toHaveLength(1)
+
+    // Rebuild all indices
+    const processedCount = await db.rebuildIndices()
+    expect(processedCount).toBe(2) // 2 documents processed
+
+    // Verify indices still work
+    results = await db.select({ name: 'Bob' }).drain()
+    expect(results).toHaveLength(1)
+    expect(results[0].name).toBe('Bob')
+
+    await db.close()
+  })
+
+  test('Should rebuild specific indices only', async () => {
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
+    await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
+    await db.createIndex('idx_tags', { type: 'btree', fields: ['tags.0'] })
+
+    await db.init()
+    await db.insert({ name: 'Alice', age: 30, tags: ['developer', 'js'] })
+
+    // Rebuild specific index
+    const processedCount = await db.rebuildIndices(['idx_tags'])
+    expect(processedCount).toBe(1)
+
+    // Verify index works
+    const results = await db.select({ 'tags.0': 'developer' }).drain()
+    expect(results).toHaveLength(1)
+    expect(results[0].name).toBe('Alice')
+
+    // Expect an error for non-existent index rebuild
+    await expect(db.rebuildIndices(['invalid_index'])).rejects.toThrow()
+    // Expect an error when trying to rebuild _id
+    await expect(db.rebuildIndices(['_id'])).rejects.toThrow()
+
+    await db.close()
+  })
 })

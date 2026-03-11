@@ -86,6 +86,17 @@ export class DocumentDataply<T extends DocumentJSON> {
   }
 
   /**
+   * Rebuild specified indices by clearing existing data and reconstructing via bulkLoad.
+   * If no index names are provided, rebuilds all indices except '_id'.
+   * @param indexNames Optional array of index names to rebuild
+   * @param tx Optional transaction
+   * @returns The number of documents processed
+   */
+  async rebuildIndices(indexNames?: string[], tx?: Transaction): Promise<number> {
+    return this.api.rebuildIndices(indexNames, tx)
+  }
+
+  /**
    * Initialize the document database
    */
   async init(): Promise<void> {

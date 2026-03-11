@@ -352,6 +352,118 @@ export class IndexManager<T extends DocumentJSON> {
   }
 
   /**
+   * Rebuild specified indices by clearing existing tree data and rebuilding via bulkLoad.
+   * If no index names are provided, all indices (except _id) are rebuilt.
+   */
+  async rebuildIndices(indexNames?: string[], tx?: Transaction): Promise<number> {
+    const targets = indexNames ?? [...this.registeredIndices.keys()].filter(n => n !== '_id')
+
+    for (const name of targets) {
+      if (name === '_id') {
+        throw new Error('Cannot rebuild the "_id" index.')
+      }
+      if (!this.registeredIndices.has(name)) {
+        throw new Error(`Index "${name}" does not exist.`)
+      }
+    }
+
+    if (targets.length === 0) return 0
+
+    this.logger.debug(`Starting rebuild for indices: ${targets.join(', ')}`)
+
+    return this.api.runWithDefaultWrite(async (tx) => {
+      const metadata = await this.api.getDocumentInnerMetadata(tx)
+      if (metadata.lastId === 0) return 0
+
+      // 1. Collect entries from documents
+      const bulkData: Record<
+        string,
+        [number | string, DataplyTreeValue<Primitive>][]
+      > = {}
+      for (const indexName of targets) {
+        bulkData[indexName] = []
+      }
+
+      const idTree = this.trees.get('_id')
+      if (!idTree) throw new Error('ID tree not found')
+
+      let docCount = 0
+      const stream = idTree.whereStream({ primaryGte: { v: 0 } })
+      for await (const [k] of stream) {
+        const doc = await this.api.getDocument(k as number, tx)
+        if (!doc) continue
+        const flatDoc = this.api.flattenDocument(doc)
+
+        for (let i = 0, len = targets.length; i < len; i++) {
+          const indexName = targets[i]
+          const config = this.registeredIndices.get(indexName)
+          if (!config) continue
+
+          if (config.type === 'fts') {
+            const primaryField = this.getPrimaryField(config)
+            const v = flatDoc[primaryField]
+            if (v === undefined || typeof v !== 'string') continue
+            const ftsConfig = this.getFtsConfig(config)
+            const tokens = ftsConfig ? tokenize(v, ftsConfig) : [v]
+            for (let j = 0, tLen = tokens.length; j < tLen; j++) {
+              const token = tokens[j]
+              const keyToInsert = this.getTokenKey(k as number, token as string)
+              bulkData[indexName].push([keyToInsert, { k: k as number, v: token }])
+            }
+          } else {
+            const indexVal = this.getIndexValue(config, flatDoc)
+            if (indexVal === undefined) continue
+            bulkData[indexName].push([k, { k: k as number, v: indexVal } as any])
+          }
+        }
+        docCount++
+      }
+
+      // 2. Clear existing trees and rebuild with bulkLoad
+      const perIndexCapacity = Math.floor(this.api.options.pageCacheCapacity / Object.keys(this.api.indices).length)
+
+      for (const indexName of targets) {
+        // Reset head PK to -1 so readHead returns null → init creates fresh root
+        metadata.indices[indexName][0] = -1
+        await this.api.updateDocumentInnerMetadata(metadata, tx)
+
+        // Create a new tree instance (old tree nodes become orphans in storage)
+        const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
+          new DocumentSerializeStrategyAsync<Primitive>(
+            (this.api as any).rowTableEngine.order,
+            this.api,
+            (this.api as any).txContext,
+            indexName
+          ),
+          this.api.comparator as any,
+          { capacity: perIndexCapacity }
+        )
+        await tree.init()
+        this.trees.set(indexName, tree as any)
+
+        // BulkLoad the collected entries
+        const entries = bulkData[indexName]
+        if (entries.length > 0) {
+          const treeTx = await tree.createTransaction()
+          try {
+            await treeTx.bulkLoad(entries as any)
+            const res = await treeTx.commit()
+            if (!res.success) {
+              await treeTx.rollback()
+              throw (res as any).error
+            }
+          } catch (err) {
+            await treeTx.rollback()
+            throw err
+          }
+        }
+      }
+
+      return docCount
+    }, tx)
+  }
+
+  /**
    * Convert CreateIndexOption to IndexMetaConfig for metadata storage.
    */
   toIndexMetaConfig(option: CreateIndexOption<T>): IndexMetaConfig {

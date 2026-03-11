@@ -143,6 +143,17 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   }
 
   /**
+   * Rebuild specified indices by clearing existing tree data and rebuilding via bulkLoad.
+   * If no index names are provided, all indices (except _id) are rebuilt.
+   * @param indexNames Optional array of index names to rebuild
+   * @param tx Optional transaction
+   * @returns The number of documents processed
+   */
+  async rebuildIndices(indexNames?: string[], tx?: Transaction): Promise<number> {
+    return this.indexManager.rebuildIndices(indexNames, tx)
+  }
+
+  /**
    * Flush all interval analysis providers, forcing statistics to be recalculated.
    * Call this after bulk inserts or periodically to keep statistics fresh.
    * @param tx The transaction to use
