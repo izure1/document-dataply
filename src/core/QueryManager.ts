@@ -11,7 +11,7 @@ import type {
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
 import type { Optimizer } from './Optimizer'
-import { BPTreeAsync, type BPTreeCondition } from 'dataply'
+import { BPTreeAsync, type BPTreeCondition, Logger } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 import { BinaryHeap } from '../utils/heap'
 
@@ -33,7 +33,7 @@ export class QueryManager<T extends DocumentJSON> {
   constructor(
     private api: DocumentDataplyAPI<T>,
     private optimizer: Optimizer<T>,
-    private logger: any
+    private logger: Logger
   ) { }
 
   /**

@@ -9,7 +9,7 @@ import type {
   FlattenedDocumentJSON
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
-import { BPTreeAsync, Transaction } from 'dataply'
+import { BPTreeAsync, Transaction, Logger } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 
@@ -40,7 +40,7 @@ export class IndexManager<T extends DocumentJSON> {
 
   constructor(
     private api: DocumentDataplyAPI<T>,
-    private logger: any
+    private logger: Logger
   ) {
     this.trees = new Map()
     this.indexedFields = new Set(['_id'])
@@ -436,7 +436,9 @@ export class IndexManager<T extends DocumentJSON> {
             indexName
           ),
           this.api.comparator as any,
-          { capacity: perIndexCapacity }
+          {
+            capacity: perIndexCapacity
+          }
         )
         await tree.init()
         this.trees.set(indexName, tree as any)

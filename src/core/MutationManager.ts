@@ -7,7 +7,7 @@ import type {
   Primitive
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
-import { Transaction, BPTreeAsyncTransaction } from 'dataply'
+import { Transaction, BPTreeAsyncTransaction, Logger } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 import { catchPromise } from '../utils/catchPromise'
 import { DeadlineChunker } from '../utils/DeadlineChunker'
@@ -15,7 +15,7 @@ import { DeadlineChunker } from '../utils/DeadlineChunker'
 export class MutationManager<T extends DocumentJSON> {
   constructor(
     private api: DocumentDataplyAPI<T>,
-    private logger: any // Fallback until logger is exported from dataply
+    private logger: Logger
   ) { }
 
   private async isTreeEmpty(tree: any): Promise<boolean> {
@@ -80,12 +80,16 @@ export class MutationManager<T extends DocumentJSON> {
       // 통계 provider에 insert 이벤트 전파
       await this.api.analysisManager.notifyInsert([flattenDocument], tx)
 
+      this.logger.debug(`Inserted single document with ID: ${dataplyDocument._id}`)
+
       return dataplyDocument._id
     }, tx)
   }
 
   async insertBatchDocuments(documents: T[], tx?: Transaction): Promise<number[]> {
     return this.api.runWithDefaultWrite(async (tx: Transaction) => {
+      this.logger.debug(`Batch inserting ${documents.length} documents`)
+
       // 1. Prepare Metadata and increment IDs in bulk
       const metadata = await this.api.getDocumentInnerMetadata(tx)
       const startId = metadata.lastId + 1
@@ -181,6 +185,7 @@ export class MutationManager<T extends DocumentJSON> {
         const res = await treeTx.commit()
         if (!res.success) {
           await treeTx.rollback()
+          this.logger.error(`Failed to commit batch insert for index ${indexName}: ${(res as any).error}`)
           throw (res as any).error
         }
       }
@@ -192,6 +197,8 @@ export class MutationManager<T extends DocumentJSON> {
       }
       await this.api.analysisManager.notifyInsert(flatDocs, tx)
 
+      this.logger.debug(`Successfully batch inserted ${documents.length} documents`)
+
       return ids
     }, tx)
   }
@@ -202,6 +209,7 @@ export class MutationManager<T extends DocumentJSON> {
     tx: Transaction
   ): Promise<number> {
     const pks = await this.api.queryManager.getKeys(query)
+    this.logger.debug(`Found ${pks.length} documents to update`)
     let updatedCount = 0
     const updatePairs: { oldDocument: FlattenedDocumentJSON, newDocument: FlattenedDocumentJSON }[] = []
 
@@ -281,12 +289,15 @@ export class MutationManager<T extends DocumentJSON> {
         for (const rollbackTx of treeTxs.values()) {
           rollbackTx.rollback()
         }
+        this.logger.error(`Failed to commit update for index ${indexName}: ${(result as any).error}`)
         throw (result as any).error
       }
     }
 
     // 통계 provider에 update 이벤트 일괄 전파
     await this.api.analysisManager.notifyUpdate(updatePairs, tx)
+
+    this.logger.debug(`Successfully updated ${updatedCount} documents`)
 
     return updatedCount
   }
@@ -332,6 +343,7 @@ export class MutationManager<T extends DocumentJSON> {
   ): Promise<number> {
     return this.api.runWithDefaultWrite(async (tx: Transaction) => {
       const pks = await this.api.queryManager.getKeys(query)
+      this.logger.debug(`Found ${pks.length} documents to delete`)
       let deletedCount = 0
       const deletedFlatDocs: FlattenedDocumentJSON[] = []
 
@@ -373,6 +385,8 @@ export class MutationManager<T extends DocumentJSON> {
 
       // 통계 provider에 delete 이벤트 일괄 전파
       await this.api.analysisManager.notifyDelete(deletedFlatDocs, tx)
+
+      this.logger.debug(`Successfully deleted ${deletedCount} documents`)
 
       return deletedCount
     }, tx)

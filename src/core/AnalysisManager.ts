@@ -6,7 +6,7 @@ import type {
 import type { DocumentDataplyAPI } from './documentAPI'
 import type { AnalysisProvider } from './AnalysisProvider'
 import { Cron } from 'croner'
-import { Transaction } from 'dataply'
+import { Transaction, Logger } from 'dataply'
 import { RealtimeAnalysisProvider } from './RealtimeAnalysisProvider'
 import { IntervalAnalysisProvider } from './IntervalAnalysisProvider'
 import { BuiltinAnalysisProviders } from './analysis'
@@ -20,7 +20,7 @@ export class AnalysisManager<T extends DocumentJSON> {
     private api: DocumentDataplyAPI<T>,
     schedule: string,
     public readonly sampleSize: number,
-    private logger: any
+    private logger: Logger
   ) {
     this.cron = new Cron(schedule, async () => {
       if (this.flushing) return

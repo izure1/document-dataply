@@ -4,12 +4,12 @@ import type {
   DocumentJSON
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
-import { Transaction } from 'dataply'
+import { Transaction, Logger } from 'dataply'
 
 export class MetadataManager<T extends DocumentJSON> {
   constructor(
     private api: DocumentDataplyAPI<T>,
-    private logger: any
+    private logger: Logger
   ) { }
 
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
