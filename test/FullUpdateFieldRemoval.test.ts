@@ -25,7 +25,7 @@ describe('fullUpdate Field Removal', () => {
   })
 
   test('fullUpdate should remove fields not in new document', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_a', { type: 'btree', fields: ['a'] })
 
     await db.init()
@@ -66,7 +66,7 @@ describe('fullUpdate Field Removal', () => {
   })
 
   test('partialUpdate should preserve fields not in update', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_a', { type: 'btree', fields: ['a'] })
 
     await db.init()

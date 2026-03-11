@@ -9,7 +9,7 @@ describe('Composite Index Selectivity Parsing Test', () => {
 
   beforeAll(async () => {
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath)
-    db = DocumentDataply.Define<any>().Options({}).Open(dbPath)
+    db = DocumentDataply.Define<any>().Options({ logLevel: 0 }).Open(dbPath)
     await db.createIndex('idx_complex', { type: 'btree', fields: ['category', 'level', 'score'] })
     await db.init()
     api = (db as any).api

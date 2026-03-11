@@ -25,7 +25,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
     const currentDbPath = path.join(testDir, 'rollback.db')
 
     // 1. Create DB and insert data without index
-    let db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    let db = DocumentDataply.Define<RecoveryDoc>().Options({ logLevel: 0 }).Open(currentDbPath)
     await db.init()
 
     const count = 50
@@ -36,7 +36,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
     await db.close()
 
     // 2. Reopen with NEW index 'score'
-    db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    db = DocumentDataply.Define<RecoveryDoc>().Options({ logLevel: 0 }).Open(currentDbPath)
     await db.createIndex('idx_score', { type: 'btree', fields: ['score'] })
 
     // Public init() internally calls backfillIndices()
@@ -51,7 +51,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
   test('should persist data and indices after restart', async () => {
     const currentDbPath = path.join(testDir, 'persist.db')
 
-    let db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    let db = DocumentDataply.Define<RecoveryDoc>().Options({ logLevel: 0 }).Open(currentDbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
@@ -59,7 +59,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
     await db.close()
 
     // Reopen
-    db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    db = DocumentDataply.Define<RecoveryDoc>().Options({ logLevel: 0 }).Open(currentDbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
@@ -73,7 +73,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
   test('should handle multiple indices backfill at once', async () => {
     const currentDbPath = path.join(testDir, 'multi_backfill.db')
 
-    let db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    let db = DocumentDataply.Define<RecoveryDoc>().Options({ logLevel: 0 }).Open(currentDbPath)
     await db.init()
     await db.insertBatch([
       { name: 'A', score: 1 },
@@ -82,7 +82,7 @@ describe('DocumentDataply Recovery and Backfill Test', () => {
     await db.close()
 
     // Add two indices at once
-    db = DocumentDataply.Define<RecoveryDoc>().Options({}).Open(currentDbPath)
+    db = DocumentDataply.Define<RecoveryDoc>().Options({ logLevel: 0 }).Open(currentDbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.createIndex('idx_score', { type: 'btree', fields: ['score'] })
     await db.init()

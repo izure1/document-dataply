@@ -22,7 +22,7 @@ describe('Composite Index Restart Verification', () => {
 
   test('Should recover composite index correctly after restart', async () => {
     // 1. 초기화 및 복합 인덱스 설정
-    let db = DocumentDataply.Define<ChatDoc>().Options({}).Open(DB_PATH)
+    let db = DocumentDataply.Define<ChatDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.init()
 
     // 복합 인덱스 생성 (4개 필드 조합)
@@ -46,7 +46,7 @@ describe('Composite Index Restart Verification', () => {
     await db.close()
 
     // 3. 재시작
-    db = DocumentDataply.Define<ChatDoc>().Options({}).Open(DB_PATH)
+    db = DocumentDataply.Define<ChatDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.init()
 
     const indexedFields = Array.from((db as any).api.indexedFields)
@@ -70,7 +70,7 @@ describe('Composite Index Restart Verification', () => {
   })
 
   test('Should throw error for non-indexed query field', async () => {
-    let db = DocumentDataply.Define<ChatDoc>().Options({}).Open(DB_PATH)
+    let db = DocumentDataply.Define<ChatDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.init()
 
     // 인덱스가 없는 'unknown_field'로 검색 시도

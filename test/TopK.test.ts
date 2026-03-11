@@ -9,7 +9,7 @@ describe('Top-K Optimization', () => {
   beforeAll(async () => {
     if (fs.existsSync(dbPath)) fs.rmSync(dbPath, { recursive: true, force: true })
     db = DocumentDataply.Define<{ name: string; age: number }>()
-      .Options({})
+      .Options({ logLevel: 0 })
       .Open(dbPath)
     await db.createIndex('idx_age', { type: 'btree', fields: ['age'] })
     await db.init()

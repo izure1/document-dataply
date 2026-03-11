@@ -24,7 +24,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should insert and query with enabled index', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -43,7 +43,7 @@ describe('Document Indexing Options', () => {
 
   test('Should backfill index when option is enabled later', async () => {
     // 1. Start without name index
-    let db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.init()
     const pk1 = await db.insert({ name: 'Charlie', age: 40 })
     const pk2 = await db.insert({ name: 'David', age: 45 })
@@ -53,7 +53,7 @@ describe('Document Indexing Options', () => {
     await db.close()
 
     // 2. Restart with name index enabled -> Backfill should trigger
-    db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
@@ -71,7 +71,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should not create index tree when field is not indexed', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     // name not indexed at all
     await db.init()
     await db.insert({ name: 'Henry', age: 60 })
@@ -83,7 +83,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should delete a single document by query', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -111,7 +111,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should delete multiple documents matching query', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -135,7 +135,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should return 0 when no documents match delete query', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -153,7 +153,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should persist delete after database restart', async () => {
-    let db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -165,7 +165,7 @@ describe('Document Indexing Options', () => {
     await db.close()
 
     // Reopen database
-    db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
@@ -181,7 +181,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should partial update document with object', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -206,7 +206,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should partial update document with function', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -228,7 +228,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should update indexed field and reindex', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -252,7 +252,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should persist partial update after database restart', async () => {
-    let db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -263,7 +263,7 @@ describe('Document Indexing Options', () => {
     await db.close()
 
     // Reopen database
-    db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
@@ -280,7 +280,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should full update document with object', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -310,7 +310,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should full update document with function', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()
@@ -336,7 +336,7 @@ describe('Document Indexing Options', () => {
   })
 
   test('Should preserve _id on full update', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
     await db.init()

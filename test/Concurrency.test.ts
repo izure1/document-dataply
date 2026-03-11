@@ -15,7 +15,7 @@ describe('DocumentDataply Concurrency Stress Test', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<CounterDoc>().Options({}).Open(dbPath)
+    db = DocumentDataply.Define<CounterDoc>().Options({ logLevel: 0 }).Open(dbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.createIndex('idx_count', { type: 'btree', fields: ['count'] })
     await db.init()

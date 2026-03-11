@@ -23,7 +23,7 @@ describe('DocumentDataply Basic CRUD', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<UserDoc>().Options({}).Open(dbPath)
+    db = DocumentDataply.Define<UserDoc>().Options({ logLevel: 0 }).Open(dbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.createIndex('idx_age', { type: 'btree', fields: ['age'] })
     await db.createIndex('idx_city', { type: 'btree', fields: ['city'] })

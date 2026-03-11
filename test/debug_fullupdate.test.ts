@@ -31,7 +31,7 @@ describe('Debug fullUpdate sequence', () => {
   })
 
   test('debug: check exactly where it hangs', async () => {
-    const db = DocumentDataply.Define<MassiveDoc>().Options({}).Open(DB_PATH)
+    const db = DocumentDataply.Define<MassiveDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
     await db.createIndex('idx_age', { type: 'btree', fields: ['age'] })
     await db.createIndex('idx_company', { type: 'btree', fields: ['company'] })
 
