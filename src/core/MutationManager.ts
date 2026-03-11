@@ -145,10 +145,7 @@ export class MutationManager<T extends DocumentJSON> {
         }
 
         // Chunk batchInsertData to prevent Node.js event loop starvation
-        const initChunkSize = Math.min(
-          50000,
-          Math.max(1, Math.floor(batchInsertData.length / 100 * 5))
-        )
+        const initChunkSize = Math.min(50000, Math.floor(pks.length / 100 * 5))
         const chunker = new DeadlineChunker(initChunkSize)
         await chunker.processInChunks(batchInsertData, async (chunk) => {
           const [error] = await catchPromise(treeTx.batchInsert(chunk))
