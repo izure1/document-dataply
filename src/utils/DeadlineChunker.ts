@@ -19,7 +19,7 @@ export class DeadlineChunker {
    */
   private alpha: number
 
-  constructor(targetMs = 14) {
+  constructor(targetMs = 5) {
     this.targetMs = targetMs
     this.chunkSize = 50
     this.ewmaMs = null
@@ -29,7 +29,7 @@ export class DeadlineChunker {
   /**
    * EWMA 평활화 계수를 사용하여 평균 처리 시간을 업데이트합니다.
    */
-  _updateEstimate(elapsed: number, count: number): void {
+  private updateEstimate(elapsed: number, count: number): void {
     const msPerItem = elapsed / count
     this.ewmaMs = this.ewmaMs === null
       ? msPerItem
@@ -39,7 +39,7 @@ export class DeadlineChunker {
   /**
    * 현재 chunk size를 업데이트합니다.
    */
-  _nextChunkSize(): number {
+  private nextChunkSize(): number {
     if (!this.ewmaMs || this.ewmaMs === 0) return this.chunkSize
     const next = Math.floor(this.targetMs / this.ewmaMs)
     return Math.max(1, Math.min(next, 5000))
@@ -53,16 +53,17 @@ export class DeadlineChunker {
     let len = items.length
     while (i < len) {
       const chunk = items.slice(i, i + this.chunkSize)
+      const count = chunk.length
       const start = performance.now()
 
       await processFn(chunk)
 
       const elapsed = performance.now() - start
-      this._updateEstimate(elapsed, chunk.length)
-      this.chunkSize = this._nextChunkSize()
+      this.updateEstimate(elapsed, count)
+      this.chunkSize = this.nextChunkSize()
 
-      i += chunk.length
-      await new Promise(resolve => setImmediate(resolve))
+      i += count
+      await new Promise(setImmediate)
     }
   }
 }
