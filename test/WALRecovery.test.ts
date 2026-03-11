@@ -40,7 +40,7 @@ describe('DocumentDataply WAL Crash Recovery', () => {
     // 2. Open DB in this process
     const db = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      logLevel: 0,
+      logLevel: 3,
     }).Open(dbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 
@@ -62,7 +62,7 @@ describe('DocumentDataply WAL Crash Recovery', () => {
     // 2. Open DB
     const db = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      logLevel: 0,
+      logLevel: 3,
     }).Open(dbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
 

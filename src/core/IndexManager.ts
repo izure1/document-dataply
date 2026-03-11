@@ -38,7 +38,10 @@ export class IndexManager<T extends DocumentJSON> {
 
   pendingBackfillFields: string[] = []
 
-  constructor(private api: DocumentDataplyAPI<T>) {
+  constructor(
+    private api: DocumentDataplyAPI<T>,
+    private logger: any
+  ) {
     this.trees = new Map()
     this.indexedFields = new Set(['_id'])
   }
@@ -141,6 +144,7 @@ export class IndexManager<T extends DocumentJSON> {
    * Register an index. If called before init(), queues it.
    */
   async registerIndex(name: string, option: CreateIndexOption<T>, tx?: Transaction): Promise<void> {
+    this.logger.debug(`Registering index "${name}" (type: ${option.type})`)
     if (!this.api.isDocInitialized) {
       this.pendingCreateIndices.set(name, option)
       return
@@ -249,6 +253,7 @@ export class IndexManager<T extends DocumentJSON> {
    * Backfill indices for newly created indices after data was inserted.
    */
   async backfillIndices(tx?: Transaction): Promise<number> {
+    this.logger.debug(`Starting backfill for fields: ${this.pendingBackfillFields.join(', ')}`)
     return this.api.runWithDefaultWrite(async (tx) => {
       if (this.pendingBackfillFields.length === 0) {
         return 0

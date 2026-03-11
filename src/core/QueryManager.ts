@@ -32,7 +32,8 @@ export class QueryManager<T extends DocumentJSON> {
 
   constructor(
     private api: DocumentDataplyAPI<T>,
-    private optimizer: Optimizer<T>
+    private optimizer: Optimizer<T>,
+    private logger: any
   ) { }
 
   /**
@@ -453,6 +454,7 @@ export class QueryManager<T extends DocumentJSON> {
   ): Promise<number> {
     return this.api.runWithDefault(async (tx) => {
       const pks = await this.getKeys(query)
+      this.logger.debug(`Counted ${pks.length} documents matching query`)
       return pks.length
     }, tx)
   }
@@ -467,13 +469,17 @@ export class QueryManager<T extends DocumentJSON> {
   } {
     for (const field of Object.keys(query)) {
       if (!this.api.indexedFields.has(field)) {
-        throw new Error(`Query field "${field}" is not indexed. Available indexed fields: ${Array.from(this.api.indexedFields).join(', ')}`)
+        const errorMsg = `Query field "${field}" is not indexed. Available indexed fields: ${Array.from(this.api.indexedFields).join(', ')}`
+        this.logger.error(errorMsg)
+        throw new Error(errorMsg)
       }
     }
 
     const orderBy = options.orderBy
     if (orderBy !== undefined && !this.api.indexedFields.has(orderBy as string)) {
-      throw new Error(`orderBy field "${orderBy}" is not indexed. Available indexed fields: ${Array.from(this.api.indexedFields).join(', ')}`)
+      const errorMsg = `orderBy field "${orderBy}" is not indexed. Available indexed fields: ${Array.from(this.api.indexedFields).join(', ')}`
+      this.logger.error(errorMsg)
+      throw new Error(errorMsg)
     }
 
     const {
@@ -587,6 +593,7 @@ export class QueryManager<T extends DocumentJSON> {
             others,
             tx
           )) {
+            self.logger.debug(`Yielding sorted document: ${doc._id}`)
             if (skippedCount < offset) {
               skippedCount++
               continue

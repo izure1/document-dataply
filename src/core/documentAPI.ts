@@ -41,34 +41,41 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   constructor(file: string, options: DocumentDataplyOptions) {
     super(file, options)
     this.optimizer = new Optimizer(this)
-    this.queryManager = new QueryManager(this, this.optimizer)
-    this.indexManager = new IndexManager(this)
-    this.mutationManager = new MutationManager(this)
-    this.metadataManager = new MetadataManager(this)
+    this.queryManager = new QueryManager(this, this.optimizer, this.loggerManager.create('document-dataply:query'))
+    this.indexManager = new IndexManager(this, this.loggerManager.create('document-dataply:index'))
+    this.mutationManager = new MutationManager(this, this.loggerManager.create('document-dataply:mutation'))
+    this.metadataManager = new MetadataManager(this, this.loggerManager.create('document-dataply:metadata'))
     this.documentFormatter = new DocumentFormatter<T>()
     this.analysisManager = new AnalysisManager(
       this,
       options.analysisSchedule ?? '* */1 * * *',
-      options.analysisSampleSize ?? 1000
+      options.analysisSampleSize ?? 1000,
+      this.loggerManager.create('document-dataply:analysis')
     )
 
     this.hook.onceAfter('close', async () => {
+      this.logger.info('DocumentDataplyAPI closing')
       this.analysisManager.close()
     })
 
     this.hook.onceAfter('init', async (tx, isNewlyCreated) => {
+      this.logger.info(`Initializing document database. New creation: ${isNewlyCreated}`)
       if (isNewlyCreated) {
         await this.initializeDocumentFile(tx)
+        this.logger.debug('Initialized document file format')
       }
       if (!(await this.verifyDocumentFile(tx))) {
+        this.logger.error('Document metadata verification failed')
         throw new Error('Document metadata verification failed')
       }
       const metadata = await this.getDocumentInnerMetadata(tx)
       await this.indexManager.initializeIndices(metadata, isNewlyCreated, tx)
+      this.logger.debug(`Indices initialized. Total indices: ${Object.keys(metadata.indices).length}`)
       this.analysisManager.registerBuiltinProviders()
       await this.analysisManager.initializeProviders(tx)
       this.analysisManager.triggerCron()
       this._initialized = true
+      this.logger.info('Document database fully initialized')
       return tx
     })
   }

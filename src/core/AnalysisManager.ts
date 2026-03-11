@@ -16,7 +16,12 @@ export class AnalysisManager<T extends DocumentJSON> {
   private cron: Cron | null = null
   private flushing: boolean = false
 
-  constructor(private api: DocumentDataplyAPI<T>, schedule: string, public readonly sampleSize: number) {
+  constructor(
+    private api: DocumentDataplyAPI<T>,
+    schedule: string,
+    public readonly sampleSize: number,
+    private logger: any
+  ) {
     this.cron = new Cron(schedule, async () => {
       if (this.flushing) return
       await this.api.flushAnalysis()
@@ -155,6 +160,7 @@ export class AnalysisManager<T extends DocumentJSON> {
     if (this.flushing) {
       throw new Error('Cannot flush analysis while analysis is already flushing.')
     }
+    this.logger.debug('Starting analysis data flush')
     this.flushing = true
     for (const [name, provider] of this.providers) {
       if (provider instanceof IntervalAnalysisProvider) {
@@ -162,6 +168,7 @@ export class AnalysisManager<T extends DocumentJSON> {
       }
     }
     this.flushing = false
+    this.logger.debug('Finished analysis data flush')
   }
 
   /**

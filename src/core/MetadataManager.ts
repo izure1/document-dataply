@@ -7,7 +7,10 @@ import type { DocumentDataplyAPI } from './documentAPI'
 import { Transaction } from 'dataply'
 
 export class MetadataManager<T extends DocumentJSON> {
-  constructor(private api: DocumentDataplyAPI<T>) { }
+  constructor(
+    private api: DocumentDataplyAPI<T>,
+    private logger: any
+  ) { }
 
   async getDocumentMetadata(tx: Transaction): Promise<DocumentDataplyMetadata> {
     const metadata = await this.api.getMetadata(tx)
@@ -37,6 +40,7 @@ export class MetadataManager<T extends DocumentJSON> {
   }
 
   async updateDocumentInnerMetadata(metadata: DocumentDataplyInnerMetadata, tx: Transaction): Promise<void> {
+    this.logger.debug(`Updating document inner metadata: version ${metadata.version}`)
     await this.api.update(1, JSON.stringify(metadata), tx)
   }
 
@@ -53,6 +57,7 @@ export class MetadataManager<T extends DocumentJSON> {
         // 콜백 내부에서 createIndex/dropIndex가 메타데이터를 변경했을 수 있으므로
         // 최신 메타데이터를 다시 읽어서 schemeVersion만 업데이트
         const freshMetadata = await this.getDocumentInnerMetadata(tx)
+        this.logger.info(`Migration applied successfully to schemeVersion ${version}`)
         freshMetadata.schemeVersion = version
         freshMetadata.updatedAt = Date.now()
         await this.updateDocumentInnerMetadata(freshMetadata, tx)

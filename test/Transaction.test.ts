@@ -14,7 +14,7 @@ describe('DocumentDataply Transaction', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<TxDoc>().Options({ logLevel: 0 }).Open(dbPath)
+    db = DocumentDataply.Define<TxDoc>().Options({ logLevel: 3 }).Open(dbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
   })

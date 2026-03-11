@@ -13,7 +13,10 @@ import { catchPromise } from '../utils/catchPromise'
 import { DeadlineChunker } from '../utils/DeadlineChunker'
 
 export class MutationManager<T extends DocumentJSON> {
-  constructor(private api: DocumentDataplyAPI<T>) { }
+  constructor(
+    private api: DocumentDataplyAPI<T>,
+    private logger: any // Fallback until logger is exported from dataply
+  ) { }
 
   private async insertDocumentInternal(document: T, tx: Transaction): Promise<{
     pk: number

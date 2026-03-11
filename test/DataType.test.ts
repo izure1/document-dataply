@@ -15,7 +15,7 @@ describe('DocumentDataply Mixed Data Type Test', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<MixedDoc>().Options({ logLevel: 0 }).Open(dbPath)
+    db = DocumentDataply.Define<MixedDoc>().Options({ logLevel: 3 }).Open(dbPath)
     await db.createIndex('idx_value', { type: 'btree', fields: ['value'] })
     await db.init()
   })

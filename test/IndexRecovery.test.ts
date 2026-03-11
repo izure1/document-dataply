@@ -20,7 +20,7 @@ describe('Index Recovery - Migration Scenario', () => {
 
   test('Index created inside migration should persist after restart', async () => {
     // 1. Create DB, init, then create index inside migration
-    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
+    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
     await db.init()
     await db.migration(1, async (tx) => {
       await db.createIndex('idx_name', { type: 'btree', fields: ['name'] }, tx)
@@ -33,7 +33,7 @@ describe('Index Recovery - Migration Scenario', () => {
     await db.close()
 
     // 2. Reopen DB WITHOUT calling createIndex or migration
-    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
+    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
     await db.init()
 
     const metaAfter = await db.getMetadata()
@@ -52,7 +52,7 @@ describe('Index Recovery - Migration Scenario', () => {
 
   test('Index created inside migration with multiple indices', async () => {
     // 1. Create DB with migration that creates 2 indices
-    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
+    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
     await db.init()
     await db.migration(1, async (tx) => {
       await db.createIndex('idx_name', { type: 'btree', fields: ['name'] }, tx)
@@ -62,7 +62,7 @@ describe('Index Recovery - Migration Scenario', () => {
     await db.close()
 
     // 2. Reopen
-    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
+    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
     await db.init()
 
     const meta = await db.getMetadata()

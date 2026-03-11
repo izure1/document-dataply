@@ -15,7 +15,7 @@ describe('DocumentDataply Array Index Shift Test', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<TagDoc>().Options({ logLevel: 0 }).Open(dbPath)
+    db = DocumentDataply.Define<TagDoc>().Options({ logLevel: 3 }).Open(dbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.createIndex('idx_tags_0', { type: 'btree', fields: ['tags.0'] })
     await db.createIndex('idx_tags_1', { type: 'btree', fields: ['tags.1'] })

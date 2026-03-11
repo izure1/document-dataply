@@ -23,7 +23,7 @@ describe('Migration and Indexing Flow', () => {
   })
 
   test('Should create index within migration and insert data after', async () => {
-    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
+    const db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
 
     // 1. Initialize DB
     await db.init()
@@ -50,7 +50,7 @@ describe('Migration and Indexing Flow', () => {
   })
 
   test('Should handle multiple migrations and index persistence', async () => {
-    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
+    let db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
     await db.init()
 
     // Migration V1: Create name index
@@ -62,7 +62,7 @@ describe('Migration and Indexing Flow', () => {
     await db.close()
 
     // Reopen: register indexes before init, then run migration
-    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 0 }).Open(DB_PATH)
+    db = DocumentDataply.Define<TestDoc>().Options({ logLevel: 3 }).Open(DB_PATH)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 

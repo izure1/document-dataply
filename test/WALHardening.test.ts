@@ -17,7 +17,7 @@ describe('DocumentDataply WAL Hardening Test', () => {
   test('should ignore partially written WAL entries (checksum failure)', async () => {
     const db = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      logLevel: 0,
+      logLevel: 3,
     }).Open(dbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
@@ -39,7 +39,7 @@ describe('DocumentDataply WAL Hardening Test', () => {
 
     const db2 = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      logLevel: 0,
+      logLevel: 3,
     }).Open(dbPath)
     db2.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db2.init()
@@ -55,7 +55,7 @@ describe('DocumentDataply WAL Hardening Test', () => {
   test('should handle garbage data at the end of WAL', async () => {
     const db = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      logLevel: 0,
+      logLevel: 3,
     }).Open(dbPath)
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
@@ -75,7 +75,7 @@ describe('DocumentDataply WAL Hardening Test', () => {
 
     const db2 = DocumentDataply.Define<{ name: string }>().Options({
       wal: walPath,
-      logLevel: 0,
+      logLevel: 3,
     }).Open(dbPath)
     db2.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db2.init()

@@ -25,7 +25,7 @@ describe('DocumentDataply Query Operators', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath)
     }
-    db = DocumentDataply.Define<DataDoc>().Options({ logLevel: 0 }).Open(dbPath)
+    db = DocumentDataply.Define<DataDoc>().Options({ logLevel: 3 }).Open(dbPath)
     await db.createIndex('idx_score', { type: 'btree', fields: ['score'] })
     await db.createIndex('idx_category', { type: 'btree', fields: ['category'] })
     await db.createIndex('idx_active', { type: 'btree', fields: ['active'] })
