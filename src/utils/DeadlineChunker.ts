@@ -19,11 +19,11 @@ export class DeadlineChunker {
    */
   private alpha: number
 
-  constructor(targetMs = 5) {
+  constructor(targetMs: number = 5, alpha: number = 0.5) {
     this.targetMs = targetMs
     this.chunkSize = 50
     this.ewmaMs = null
-    this.alpha = 0.3
+    this.alpha = alpha
   }
 
   /**
@@ -42,7 +42,7 @@ export class DeadlineChunker {
   private nextChunkSize(): number {
     if (!this.ewmaMs || this.ewmaMs === 0) return this.chunkSize
     const next = Math.floor(this.targetMs / this.ewmaMs)
-    return Math.max(1, Math.min(next, 5000))
+    return Math.max(1, next)
   }
 
   /**
