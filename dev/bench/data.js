@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773196203831,
+  "lastUpdate": 1773196986373,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -3900,6 +3900,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 100.09,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "2fd16fb1ad8346e383f5bae43fe46917eb195116",
+          "message": "feat: 인덱스 배치의 분할 삽입 초기값은 이제 최소 전체 문서의 5%, 최대 5만으로 시작합니다.",
+          "timestamp": "2026-03-11T11:39:19+09:00",
+          "tree_id": "04fe7665a774fb655d82d24206f78d6c44777320",
+          "url": "https://github.com/izure1/document-dataply/commit/2fd16fb1ad8346e383f5bae43fe46917eb195116"
+        },
+        "date": 1773196985962,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 15096.89,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 21.94,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 44.67,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 110.5,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 7870.1,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 126.98,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 98.72,
             "unit": "ms"
           }
         ]
