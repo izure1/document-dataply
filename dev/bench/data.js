@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773246294337,
+  "lastUpdate": 1773324526953,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -4313,6 +4313,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 100.17,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "5141375195b0936314a9817ccebd64ae0a6f451f",
+          "message": "feat: 배치 작업 도중 이벤트 루프 기아를 막기 위한 청크 분리를 제거하고, 물리적으로 마이크로큐를 한 루프 대기하도록 변경합니다. 이는 처리속도를 빠르게 하고, 다른 작업이 이벤트루프에 참여할 수 있도록 하여 동시성 작업을 가능하도록 합니다.",
+          "timestamp": "2026-03-12T23:07:44+09:00",
+          "tree_id": "02c0a1cf4ee4e74a70bea01ecee8ff366e78991d",
+          "url": "https://github.com/izure1/document-dataply/commit/5141375195b0936314a9817ccebd64ae0a6f451f"
+        },
+        "date": 1773324526343,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2098.95,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 19.65,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 44.23,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 114.1,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 4726.97,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 101.75,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 101.07,
             "unit": "ms"
           }
         ]
