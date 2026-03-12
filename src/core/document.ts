@@ -60,6 +60,27 @@ export class DocumentDataply<T extends DocumentJSON> {
   }
 
   /**
+   * Method for reliably processing large batches (chunks) of data.
+   * Processes data in fragments to prevent blocking the event loop while handling large volumes of data.
+   * @param items The items to process
+   * @param callback The callback to process each chunk
+   * @param options The options for the chunk splitter
+   * @param options.firstChunkSize The size of the first chunk. Subsequent chunk sizes are determined based on this value and the processing time. If not specified or set to 0, 5% of the total data is used as the initial value.
+   * @param options.alpha A value that determines the weight given to recent processing times. Higher values weigh recent times more heavily. Lower values are recommended for stability, but excessively low values may impact performance. Default is 0.5.
+   * @returns The processed items
+   */
+  processInChunks<T>(
+    items: T[],
+    callback: (chunk: T[]) => Promise<void>,
+    options?: {
+      firstChunkSize?: number
+      alpha?: number
+    }
+  ): Promise<void> {
+    return this.api.processInChunks(items, callback, options)
+  }
+
+  /**
    * Create a named index on the database.
    * Can be called before or after init().
    * If called after init(), the index is immediately created and backfilled.

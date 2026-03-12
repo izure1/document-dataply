@@ -10,8 +10,9 @@ import type {
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
 import { BPTreeAsync, Transaction, Logger } from 'dataply'
-import { tokenize } from '../utils/tokenizer'
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
+import { tokenize } from '../utils/tokenizer'
+import { yieldEventLoop } from '../utils/eventLoopManager'
 
 export class IndexManager<T extends DocumentJSON> {
   indices: DocumentDataplyInnerMetadata['indices'] = {}
@@ -228,7 +229,7 @@ export class IndexManager<T extends DocumentJSON> {
       this.registeredIndices.delete(name)
 
       const fields = this.getFieldsFromConfig(config)
-      for (let i = 0; i < fields.length; i++) {
+      for (let i = 0, len = fields.length; i < len; i++) {
         const field = fields[i]
         const indexNames = this.fieldToIndices.get(field)
         if (indexNames) {
@@ -344,6 +345,7 @@ export class IndexManager<T extends DocumentJSON> {
           await treeTx.rollback()
           throw err
         }
+        await yieldEventLoop()
       }
 
       this.pendingBackfillFields = []
@@ -410,7 +412,8 @@ export class IndexManager<T extends DocumentJSON> {
               const keyToInsert = this.getTokenKey(k as number, token as string)
               bulkData[indexName].push([keyToInsert, { k: k as number, v: token }])
             }
-          } else {
+          }
+          else {
             const indexVal = this.getIndexValue(config, flatDoc)
             if (indexVal === undefined) continue
             bulkData[indexName].push([k, { k: k as number, v: indexVal } as any])
@@ -458,6 +461,7 @@ export class IndexManager<T extends DocumentJSON> {
             await treeTx.rollback()
             throw err
           }
+          await yieldEventLoop()
         }
       }
 

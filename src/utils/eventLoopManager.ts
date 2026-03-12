@@ -1,3 +1,7 @@
+export function yieldEventLoop() {
+  return new Promise(setImmediate)
+}
+
 /**
  * 이벤트 루프를 막지 않고 대량의 데이터를 처리하기 위한 유틸리티 클래스
  */
@@ -66,7 +70,7 @@ export class DeadlineChunker {
       this.chunkSize = this.nextChunkSize()
 
       i += count
-      await new Promise(setImmediate)
+      await yieldEventLoop()
     }
   }
 }
