@@ -7,7 +7,7 @@ import type {
   Primitive
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
-import { Transaction, Logger } from 'dataply'
+import { Transaction, Logger, BPTreePureAsync } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 import { catchPromise } from '../utils/catchPromise'
 import { yieldEventLoop } from '../utils/eventLoopManager'
@@ -18,9 +18,9 @@ export class MutationManager<T extends DocumentJSON> {
     private logger: Logger
   ) { }
 
-  private async isTreeEmpty(tree: any, tx: Transaction): Promise<boolean> {
+  private async isTreeEmpty(tree: BPTreePureAsync<string | number, DataplyTreeValue<Primitive>>): Promise<boolean> {
     try {
-      const root = await tree.getNode(tree.rootId, tx)
+      const root = await tree.getRootNode()
       return root.leaf && root.values.length === 0
     } catch {
       return true
@@ -157,19 +157,21 @@ export class MutationManager<T extends DocumentJSON> {
         }
 
         // 5. 인덱스에 데이터 삽입
-        // const isEmptyTree = await this.isTreeEmpty(tree, tx)
-        // if (isEmptyTree) {
-        //   const [error] = await catchPromise(tree.bulkLoad(batchInsertData))
-        //   if (error) {
-        //     throw error
-        //   }
-        // }
-        // else {
-        const [error] = await catchPromise(tree.batchInsert(batchInsertData))
-        if (error) {
-          throw error
+        const isEmptyTree = await this.isTreeEmpty(tree)
+        if (isEmptyTree) {
+          this.logger.info(`Bulk loading ${batchInsertData.length} items into index ${indexName}`)
+          const [error] = await catchPromise(tree.bulkLoad(batchInsertData))
+          if (error) {
+            throw error
+          }
         }
-        // }
+        else {
+          this.logger.info(`Batch inserting ${batchInsertData.length} items into index ${indexName}`)
+          const [error] = await catchPromise(tree.batchInsert(batchInsertData))
+          if (error) {
+            throw error
+          }
+        }
 
         await yieldEventLoop()
       }
