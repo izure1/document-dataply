@@ -57,7 +57,7 @@ describe('DocumentDataply WAL Crash Recovery', () => {
   test('should NOT recover uncommitted data from WAL after crash', async () => {
     // 1. Run simulation that inserts but crashes WITHOUT commit
     const result = runSimulation('no-commit')
-    expect(result.status).toBe(0)
+    expect(result.status).toBe(1)
 
     // 2. Open DB
     const db = DocumentDataply.Define<{ name: string }>().Options({

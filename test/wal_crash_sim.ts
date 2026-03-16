@@ -18,10 +18,10 @@ async function run() {
     // No close(), just exit to simulate crash after commit
     process.exit(0)
   } else {
-    const tx = db.createTransaction()
-    await db.insert({ name: 'UncommittedData' }, tx)
-    // Exit before commit
-    process.exit(0)
+    await db.withWriteTransaction(async (tx) => {
+      await db.insert({ name: 'UncommittedData' }, tx)
+      throw new Error('Crash')
+    })
   }
 }
 
