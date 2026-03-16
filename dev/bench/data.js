@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773324526953,
+  "lastUpdate": 1773628037686,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -4372,6 +4372,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 101.07,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "53ce51d96b487d549403f1de8d2736d162ca732e",
+          "message": "feat: b+tree 불변성 문제 해결",
+          "timestamp": "2026-03-16T11:25:05+09:00",
+          "tree_id": "3473408e3a66d7b32332e218e6a8285029a4f27c",
+          "url": "https://github.com/izure1/document-dataply/commit/53ce51d96b487d549403f1de8d2736d162ca732e"
+        },
+        "date": 1773628037256,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 4270.74,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 30.58,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 68.23,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 10.24,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 15763.08,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 167.44,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 149.71,
             "unit": "ms"
           }
         ]
