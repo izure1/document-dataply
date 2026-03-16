@@ -9,14 +9,14 @@ import type {
   FlattenedDocumentJSON
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
-import { BPTreeAsync, Transaction, Logger } from 'dataply'
+import { BPTreePureAsync, Transaction, Logger } from 'dataply'
 import { DocumentSerializeStrategyAsync } from './bptree/documentStrategy'
 import { tokenize } from '../utils/tokenizer'
 import { yieldEventLoop } from '../utils/eventLoopManager'
 
 export class IndexManager<T extends DocumentJSON> {
   indices: DocumentDataplyInnerMetadata['indices'] = {}
-  readonly trees: Map<string, BPTreeAsync<string | number, DataplyTreeValue<Primitive>>> = new Map()
+  readonly trees: Map<string, BPTreePureAsync<string | number, DataplyTreeValue<Primitive>>> = new Map()
   readonly indexedFields: Set<string>
 
   /**
@@ -120,7 +120,7 @@ export class IndexManager<T extends DocumentJSON> {
     const perIndexCapacity = Math.floor(this.api.options.pageCacheCapacity / Object.keys(this.api.indices).length)
     for (const indexName of targetIndices.keys()) {
       if (metadata.indices[indexName]) {
-        const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
+        const tree = new BPTreePureAsync<number, DataplyTreeValue<Primitive>>(
           new DocumentSerializeStrategyAsync<Primitive>(
             (this.api as any).rowTableEngine.order,
             this.api,
@@ -163,7 +163,7 @@ export class IndexManager<T extends DocumentJSON> {
       throw new Error(`Index "${name}" already exists.`)
     }
 
-    await this.api.runWithDefaultWrite(async (tx) => {
+    await this.api.withWriteTransaction(async (tx) => {
       const metadata = await this.api.getDocumentInnerMetadata(tx)
       metadata.indices[name] = [-1, config]
       await this.api.updateDocumentInnerMetadata(metadata, tx)
@@ -181,7 +181,7 @@ export class IndexManager<T extends DocumentJSON> {
       }
 
       const perIndexCapacity = Math.floor(this.api.options.pageCacheCapacity / Object.keys(this.api.indices).length)
-      const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
+      const tree = new BPTreePureAsync<number, DataplyTreeValue<Primitive>>(
         new DocumentSerializeStrategyAsync<Primitive>(
           (this.api as any).rowTableEngine.order,
           this.api,
@@ -218,7 +218,7 @@ export class IndexManager<T extends DocumentJSON> {
       throw new Error(`Index "${name}" does not exist.`)
     }
 
-    await this.api.runWithDefaultWrite(async (tx) => {
+    await this.api.withWriteTransaction(async (tx) => {
       const config = this.registeredIndices.get(name)!
 
       const metadata = await this.api.getDocumentInnerMetadata(tx)
@@ -255,7 +255,7 @@ export class IndexManager<T extends DocumentJSON> {
    */
   async backfillIndices(tx?: Transaction): Promise<number> {
     this.logger.debug(`Starting backfill for fields: ${this.pendingBackfillFields.join(', ')}`)
-    return this.api.runWithDefaultWrite(async (tx) => {
+    return this.api.withWriteTransaction(async (tx) => {
       if (this.pendingBackfillFields.length === 0) {
         return 0
       }
@@ -333,16 +333,10 @@ export class IndexManager<T extends DocumentJSON> {
         const entries = bulkData[indexName]
         if (!entries || entries.length === 0) continue
 
-        const treeTx = await tree.createTransaction()
         try {
-          await treeTx.bulkLoad(entries)
-          const res = await treeTx.commit()
-          if (!res.success) {
-            await treeTx.rollback()
-            throw (res as any).error
-          }
+          await tree.bulkLoad(entries)
         } catch (err) {
-          await treeTx.rollback()
+          this.logger.error(`Failed to bulk load index ${indexName}`, err)
           throw err
         }
         await yieldEventLoop()
@@ -373,7 +367,7 @@ export class IndexManager<T extends DocumentJSON> {
 
     this.logger.debug(`Starting rebuild for indices: ${targets.join(', ')}`)
 
-    return this.api.runWithDefaultWrite(async (tx) => {
+    return this.api.withWriteTransaction(async (tx) => {
       const metadata = await this.api.getDocumentInnerMetadata(tx)
       if (metadata.lastId === 0) return 0
 
@@ -431,7 +425,7 @@ export class IndexManager<T extends DocumentJSON> {
         await this.api.updateDocumentInnerMetadata(metadata, tx)
 
         // Create a new tree instance (old tree nodes become orphans in storage)
-        const tree = new BPTreeAsync<number, DataplyTreeValue<Primitive>>(
+        const tree = new BPTreePureAsync<number, DataplyTreeValue<Primitive>>(
           new DocumentSerializeStrategyAsync<Primitive>(
             (this.api as any).rowTableEngine.order,
             this.api,
@@ -449,16 +443,10 @@ export class IndexManager<T extends DocumentJSON> {
         // BulkLoad the collected entries
         const entries = bulkData[indexName]
         if (entries.length > 0) {
-          const treeTx = await tree.createTransaction()
           try {
-            await treeTx.bulkLoad(entries as any)
-            const res = await treeTx.commit()
-            if (!res.success) {
-              await treeTx.rollback()
-              throw (res as any).error
-            }
+            await tree.bulkLoad(entries as any)
           } catch (err) {
-            await treeTx.rollback()
+            this.logger.error(`Failed to bulk load index ${indexName}`, err)
             throw err
           }
           await yieldEventLoop()

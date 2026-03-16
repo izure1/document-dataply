@@ -24,10 +24,6 @@ import { AnalysisManager } from './AnalysisManager'
 import { DeadlineChunker } from '../utils/eventLoopManager'
 
 export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
-  declare runWithDefault
-  declare runWithDefaultWrite
-  declare streamWithDefault
-
   readonly comparator = new DocumentValueComparator()
   private _initialized = false
 
@@ -150,13 +146,11 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    * @returns The document
    */
   async getDocument(pk: number, tx?: Transaction): Promise<DataplyDocument<T>> {
-    return this.runWithDefault(async (tx) => {
-      const row = await this.select(pk, false, tx)
-      if (!row) {
-        throw new Error(`Document not found with PK: ${pk}`)
-      }
-      return JSON.parse(row) as DataplyDocument<T>
-    }, tx)
+    const row = await this.select(pk, false, tx)
+    if (!row) {
+      throw new Error(`Document not found with PK: ${pk}`)
+    }
+    return JSON.parse(row) as DataplyDocument<T>
   }
 
   /**
@@ -184,7 +178,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    * @param tx The transaction to use
    */
   async flushAnalysis(tx?: Transaction): Promise<void> {
-    return this.runWithDefaultWrite(async (tx) => {
+    return this.withWriteTransaction(async (tx) => {
       await this.analysisManager.flush(tx)
     }, tx)
   }

@@ -39,8 +39,6 @@ describe('Composite Index Selectivity Parsing Test', () => {
     // 상한선은 equal 필드까지만 (endValues = ['weapon'])
     expect(cond.primaryLte).toBeDefined()
     expect(cond.primaryLte.v).toBe('weapon')
-
-    res.rollback()
   })
 
   it('equal + equal + gte → 3필드 복합 바운드', async () => {
@@ -63,8 +61,6 @@ describe('Composite Index Selectivity Parsing Test', () => {
     // 상한선은 equal 2개분 ['weapon', 10]
     expect(cond.primaryLte).toBeDefined()
     expect(cond.primaryLte.v).toEqual(['weapon', 10])
-
-    res.rollback()
   })
 
   it('모두 equal → primaryEqual 배열이 생성되어야 한다', async () => {
@@ -81,8 +77,6 @@ describe('Composite Index Selectivity Parsing Test', () => {
     const cond = res.driver.condition
     expect(cond.primaryEqual).toBeDefined()
     expect(cond.primaryEqual.v).toEqual(['weapon', 10, 50])
-
-    res.rollback()
   })
 
   it('gt 조건 → 하한선은 gt, 상한선은 이전 필드까지', async () => {
@@ -98,8 +92,6 @@ describe('Composite Index Selectivity Parsing Test', () => {
     expect(cond.primaryGt.v).toEqual(['weapon', 10])
     expect(cond.primaryLte).toBeDefined()
     expect(cond.primaryLte.v).toBe('weapon')
-
-    res.rollback()
   })
 
   it('lt 조건 → 하한선은 이전 필드까지, 상한선은 lt', async () => {
@@ -115,8 +107,6 @@ describe('Composite Index Selectivity Parsing Test', () => {
     expect(cond.primaryGte.v).toBe('weapon')
     expect(cond.primaryLt).toBeDefined()
     expect(cond.primaryLt.v).toEqual(['weapon', 10])
-
-    res.rollback()
   })
 
   it('or 조건 → 연속성 파괴 (이전 필드까지만 바운드 적용)', async () => {
@@ -136,8 +126,6 @@ describe('Composite Index Selectivity Parsing Test', () => {
 
     // score 조건은 B-Tree에 타지 않았어야 함
     expect(cond.primaryGte).toBeUndefined()
-
-    res.rollback()
   })
 
   it('like 조건 → 연속성 파괴', async () => {
@@ -151,8 +139,6 @@ describe('Composite Index Selectivity Parsing Test', () => {
     const cond = res.driver.condition
     expect(cond.primaryEqual).toBeDefined()
     expect(cond.primaryEqual.v).toBe('weapon')
-
-    res.rollback()
   })
 
   it('notEqual 및 기타 조건 → 연속성 파괴', async () => {
@@ -166,7 +152,5 @@ describe('Composite Index Selectivity Parsing Test', () => {
     const cond = res.driver.condition
     expect(cond.primaryEqual).toBeDefined()
     expect(cond.primaryEqual.v).toBe('weapon')
-
-    res.rollback()
   })
 })

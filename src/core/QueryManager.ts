@@ -11,7 +11,7 @@ import type {
 } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
 import type { Optimizer } from './Optimizer'
-import { BPTreeAsync, type BPTreeCondition, Logger } from 'dataply'
+import { BPTreePureAsync, type BPTreeCondition, Logger } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 import { BinaryHeap } from '../utils/heap'
 
@@ -91,7 +91,7 @@ export class QueryManager<T extends DocumentJSON> {
 
   private async *applyCandidateByFTSStream<V>(
     candidate: {
-      tree: BPTreeAsync<string, DataplyTreeValue<V>>,
+      tree: BPTreePureAsync<string, DataplyTreeValue<V>>,
       condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyQuery<T>>>>,
     },
     matchedTokens: string[],
@@ -117,7 +117,7 @@ export class QueryManager<T extends DocumentJSON> {
 
   private applyCandidateStream<V>(
     candidate: {
-      tree: BPTreeAsync<number, V>,
+      tree: BPTreePureAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<Partial<DocumentDataplyQuery<T>>>>,
     },
     filterValues?: Set<number>,
@@ -143,7 +143,7 @@ export class QueryManager<T extends DocumentJSON> {
 
     if (!selectivity) return new Float64Array(0)
 
-    const { driver, others, rollback } = selectivity
+    const { driver, others } = selectivity
     const useIndexOrder = orderBy === undefined || driver.isIndexOrderSupported
     const candidates = [driver, ...others]
 
@@ -172,7 +172,6 @@ export class QueryManager<T extends DocumentJSON> {
       }
     }
 
-    rollback()
     return new Float64Array(Array.from(keys || []))
   }
 
@@ -185,7 +184,7 @@ export class QueryManager<T extends DocumentJSON> {
   ): Promise<{
     keysStream: AsyncIterableIterator<number>,
     others: {
-      tree: BPTreeAsync<string | number, DataplyTreeValue<Primitive>>,
+      tree: BPTreePureAsync<string | number, DataplyTreeValue<Primitive>>,
       condition: any,
       field: string,
       indexName: string,
@@ -197,8 +196,7 @@ export class QueryManager<T extends DocumentJSON> {
       field: string,
       condition: any
     }[],
-    isDriverOrderByField: boolean,
-    rollback: () => void,
+    isDriverOrderByField: boolean
   } | null> {
     const isQueryEmpty = Object.keys(query).length === 0
     const normalizedQuery = isQueryEmpty ? { _id: { gte: 0 } } : query
@@ -211,7 +209,7 @@ export class QueryManager<T extends DocumentJSON> {
 
     if (!selectivity) return null
 
-    const { driver, others, compositeVerifyConditions, rollback } = selectivity
+    const { driver, others, compositeVerifyConditions } = selectivity
     const useIndexOrder = orderBy === undefined || driver.isIndexOrderSupported
     const currentOrder = useIndexOrder ? sortOrder : undefined
 
@@ -237,7 +235,6 @@ export class QueryManager<T extends DocumentJSON> {
       others: others as any,
       compositeVerifyConditions,
       isDriverOrderByField: useIndexOrder,
-      rollback,
     }
   }
 
@@ -336,7 +333,7 @@ export class QueryManager<T extends DocumentJSON> {
     ftsConditions: { field: string, matchTokens: string[] }[],
     compositeVerifyConditions: { field: string, condition: any }[],
     others: {
-      tree: BPTreeAsync<string | number, DataplyTreeValue<Primitive>>,
+      tree: BPTreePureAsync<string | number, DataplyTreeValue<Primitive>>,
       condition: any,
       field: string,
       indexName: string,
@@ -452,7 +449,7 @@ export class QueryManager<T extends DocumentJSON> {
     query: Partial<DocumentDataplyQuery<T>>,
     tx?: any
   ): Promise<number> {
-    return this.api.runWithDefault(async (tx) => {
+    return this.api.withReadTransaction(async (tx) => {
       const pks = await this.getKeys(query)
       this.logger.debug(`Counted ${pks.length} documents matching query`)
       return pks.length
@@ -490,7 +487,7 @@ export class QueryManager<T extends DocumentJSON> {
     } = options
 
     const self = this
-    const stream = () => this.api.streamWithDefault(async function* (tx) {
+    const stream = () => this.api.withReadStreamTransaction(async function* (tx) {
       const ftsConditions: { field: string, matchTokens: string[] }[] = []
       for (const field in query) {
         const q = query[field] as any
@@ -516,96 +513,91 @@ export class QueryManager<T extends DocumentJSON> {
 
       const driverResult = await self.getDriverKeys(query, orderByField, sortOrder, limit, offset)
       if (!driverResult) return
-      const { keysStream, others, compositeVerifyConditions, isDriverOrderByField, rollback } = driverResult
+      const { keysStream, others, compositeVerifyConditions, isDriverOrderByField } = driverResult
       const initialChunkSize = self.api.options.pageSize
       const isInMemorySort = !isDriverOrderByField && orderByField
 
-      try {
-        if (isInMemorySort) {
-          const topK = limit === Infinity ? Infinity : offset + limit
-          let heap: BinaryHeap<DataplyDocument<T>> | null = null
+      if (isInMemorySort) {
+        const topK = limit === Infinity ? Infinity : offset + limit
+        let heap: BinaryHeap<DataplyDocument<T>> | null = null
 
-          if (topK !== Infinity) {
-            heap = new BinaryHeap((a: DataplyDocument<T>, b: DataplyDocument<T>) => {
-              const aVal = (a as any)[orderByField] ?? (a as any)._id
-              const bVal = (b as any)[orderByField] ?? (b as any)._id
-              const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-              return sortOrder === 'asc' ? -cmp : cmp
-            })
-          }
-
-          const results: DataplyDocument<T>[] = []
-          for await (const doc of self.processChunkedKeysWithVerify(
-            keysStream,
-            0,
-            initialChunkSize,
-            Infinity,
-            ftsConditions,
-            compositeVerifyConditions,
-            others,
-            tx
-          )) {
-            if (heap) {
-              if (heap.size < topK) heap.push(doc)
-              else {
-                const top = heap.peek()
-                if (top) {
-                  const aVal = (doc as any)[orderByField] ?? (doc as any)._id
-                  const bVal = (top as any)[orderByField] ?? (top as any)._id
-                  const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-                  if (sortOrder === 'asc' ? cmp < 0 : cmp > 0) heap.replace(doc)
-                }
-              }
-            }
-            else {
-              results.push(doc)
-            }
-          }
-
-          const finalDocs = heap ? heap.toArray() : results
-          finalDocs.sort((a, b) => {
+        if (topK !== Infinity) {
+          heap = new BinaryHeap((a: DataplyDocument<T>, b: DataplyDocument<T>) => {
             const aVal = (a as any)[orderByField] ?? (a as any)._id
             const bVal = (b as any)[orderByField] ?? (b as any)._id
             const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-            return sortOrder === 'asc' ? cmp : -cmp
+            return sortOrder === 'asc' ? -cmp : cmp
           })
+        }
 
-          const end = limit === Infinity ? undefined : offset + limit
-          const limitedResults = finalDocs.slice(offset, end)
-          for (let j = 0, len = limitedResults.length; j < len; j++) {
-            yield limitedResults[j]
+        const results: DataplyDocument<T>[] = []
+        for await (const doc of self.processChunkedKeysWithVerify(
+          keysStream,
+          0,
+          initialChunkSize,
+          Infinity,
+          ftsConditions,
+          compositeVerifyConditions,
+          others,
+          tx
+        )) {
+          if (heap) {
+            if (heap.size < topK) heap.push(doc)
+            else {
+              const top = heap.peek()
+              if (top) {
+                const aVal = (doc as any)[orderByField] ?? (doc as any)._id
+                const bVal = (top as any)[orderByField] ?? (top as any)._id
+                const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+                if (sortOrder === 'asc' ? cmp < 0 : cmp > 0) heap.replace(doc)
+              }
+            }
+          }
+          else {
+            results.push(doc)
           }
         }
-        else {
-          const hasFilters = ftsConditions.length > 0 || compositeVerifyConditions.length > 0 || others.length > 0
-          const startIdx = hasFilters ? 0 : offset
 
-          let yieldedCount = 0
-          let skippedCount = hasFilters ? 0 : offset
+        const finalDocs = heap ? heap.toArray() : results
+        finalDocs.sort((a, b) => {
+          const aVal = (a as any)[orderByField] ?? (a as any)._id
+          const bVal = (b as any)[orderByField] ?? (b as any)._id
+          const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+          return sortOrder === 'asc' ? cmp : -cmp
+        })
 
-          for await (const doc of self.processChunkedKeysWithVerify(
-            keysStream,
-            startIdx,
-            initialChunkSize,
-            limit,
-            ftsConditions,
-            compositeVerifyConditions,
-            others,
-            tx
-          )) {
-            self.logger.debug(`Yielding sorted document: ${doc._id}`)
-            if (skippedCount < offset) {
-              skippedCount++
-              continue
-            }
-            if (yieldedCount >= limit) break
-            yield doc
-            yieldedCount++
-          }
+        const end = limit === Infinity ? undefined : offset + limit
+        const limitedResults = finalDocs.slice(offset, end)
+        for (let j = 0, len = limitedResults.length; j < len; j++) {
+          yield limitedResults[j]
         }
       }
-      finally {
-        rollback()
+      else {
+        const hasFilters = ftsConditions.length > 0 || compositeVerifyConditions.length > 0 || others.length > 0
+        const startIdx = hasFilters ? 0 : offset
+
+        let yieldedCount = 0
+        let skippedCount = hasFilters ? 0 : offset
+
+        for await (const doc of self.processChunkedKeysWithVerify(
+          keysStream,
+          startIdx,
+          initialChunkSize,
+          limit,
+          ftsConditions,
+          compositeVerifyConditions,
+          others,
+          tx
+        )) {
+          self.logger.debug(`Yielding sorted document: ${doc._id}`)
+          if (skippedCount < offset) {
+            skippedCount++
+            continue
+          }
+          if (yieldedCount >= limit) break
+          yield doc
+          yieldedCount++
+        }
       }
     }, tx)
 

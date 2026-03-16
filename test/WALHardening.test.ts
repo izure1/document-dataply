@@ -22,12 +22,9 @@ describe('DocumentDataply WAL Hardening Test', () => {
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
-    // Use a second transaction to prevent WAL from being cleared after Tx1 commits
-    const txKeepWal = db.createTransaction()
-
-    const tx = db.createTransaction()
-    await db.insert({ name: 'Data1' }, tx)
-    await tx.commit()
+    await db.withWriteTransaction(async (tx) => {
+      await db.insert({ name: 'Data1' }, tx)
+    })
 
     expect(fs.existsSync(walPath)).toBe(true)
     const originalSize = fs.statSync(walPath).size
@@ -60,12 +57,9 @@ describe('DocumentDataply WAL Hardening Test', () => {
     await db.createIndex('idx_name', { type: 'btree', fields: ['name'] })
     await db.init()
 
-    // Use a second transaction to prevent WAL from being cleared after Tx1 commits
-    const txKeepWal = db.createTransaction()
-
-    const tx = db.createTransaction()
-    await db.insert({ name: 'GarbageTest' }, tx)
-    await tx.commit()
+    await db.withWriteTransaction(async (tx) => {
+      await db.insert({ name: 'GarbageTest' }, tx)
+    })
 
     const originalSize = fs.statSync(walPath).size
     console.log('Original WAL Size (Garbage Test):', originalSize)

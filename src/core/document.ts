@@ -154,14 +154,25 @@ export class DocumentDataply<T extends DocumentJSON> {
    * Get the metadata of the document database
    */
   async getMetadata(tx?: Transaction): Promise<DocumentDataplyMetadata> {
-    return this.api.runWithDefault((tx) => this.api.getDocumentMetadata(tx), tx)
+    return this.api.withReadTransaction((tx) => this.api.getDocumentMetadata(tx), tx)
   }
 
   /**
-   * Create a transaction
+   * Run a callback in a write transaction
+   * @param callback The callback to run
+   * @param tx Optional transaction
    */
-  createTransaction(): Transaction {
-    return this.api.createTransaction()
+  async withWriteTransaction(callback: (tx: Transaction) => Promise<void>, tx?: Transaction): Promise<void> {
+    return this.api.withWriteTransaction(callback, tx)
+  }
+
+  /**
+   * Run a callback in a read transaction
+   * @param callback The callback to run
+   * @param tx Optional transaction
+   */
+  async withReadTransaction(callback: (tx: Transaction) => Promise<void>, tx?: Transaction): Promise<void> {
+    return this.api.withReadTransaction(callback, tx)
   }
 
   /**

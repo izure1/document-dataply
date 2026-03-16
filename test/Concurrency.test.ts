@@ -123,7 +123,7 @@ describe('DocumentDataply Concurrency Stress Test', () => {
     expect(all.length).toBe(125)
   }, 120000)
 
-  test('should block read operations during a write operation', async () => {
+  test('should not block read operations during a write operation', async () => {
     // Insert initial data fast
     await db.insert({ name: 'Initial', count: 0 })
 

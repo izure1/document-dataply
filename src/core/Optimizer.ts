@@ -1,7 +1,7 @@
 import type { DataplyTreeValue, DocumentDataplyQuery, DocumentDataplyCondition } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
 import type { FTSTermCount } from './analysis/FTSTermCount'
-import { BPTreeAsync } from 'dataply'
+import { BPTreePureAsync } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
 
 /**
@@ -43,7 +43,7 @@ export class Optimizer<T extends Record<string, any>> {
     config: any,
     query: Partial<DocumentDataplyQuery<V>>,
     queryFields: Set<string>,
-    treeTx: BPTreeAsync<string | number, V>,
+    treeTx: BPTreePureAsync<string | number, V>,
     orderByField?: string
   ) {
     const primaryField = config.fields[0]
@@ -215,7 +215,7 @@ export class Optimizer<T extends Record<string, any>> {
     config: any,
     query: Partial<DocumentDataplyQuery<V>>,
     queryFields: Set<string>,
-    treeTx: BPTreeAsync<string | number, V>
+    tree: BPTreePureAsync<string | number, V>
   ) {
     const field = config.fields
     if (!queryFields.has(field)) return null
@@ -244,7 +244,7 @@ export class Optimizer<T extends Record<string, any>> {
     }
 
     return {
-      tree: treeTx,
+      tree,
       condition: condition as any,
       field,
       indexName,
@@ -302,14 +302,14 @@ export class Optimizer<T extends Record<string, any>> {
     offset: number = 0
   ): Promise<{
     driver: ({
-      tree: BPTreeAsync<number, V>,
+      tree: BPTreePureAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
       isFtsMatch: false,
       isIndexOrderSupported: boolean
     } | {
-      tree: BPTreeAsync<string, V>
+      tree: BPTreePureAsync<string, V>
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
@@ -318,14 +318,14 @@ export class Optimizer<T extends Record<string, any>> {
       isIndexOrderSupported: boolean
     }),
     others: ({
-      tree: BPTreeAsync<number, V>,
+      tree: BPTreePureAsync<number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
       isFtsMatch: false,
       isIndexOrderSupported: boolean
     } | {
-      tree: BPTreeAsync<string, V>
+      tree: BPTreePureAsync<string, V>
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
@@ -336,12 +336,11 @@ export class Optimizer<T extends Record<string, any>> {
     compositeVerifyConditions: {
       field: string,
       condition: any
-    }[],
-    rollback: () => void
+    }[]
   } | null> {
     const queryFields = new Set(Object.keys(query))
     const candidates: {
-      tree: BPTreeAsync<string | number, V>,
+      tree: BPTreePureAsync<string | number, V>,
       condition: Partial<DocumentDataplyCondition<U>>,
       field: string,
       indexName: string,
@@ -364,13 +363,12 @@ export class Optimizer<T extends Record<string, any>> {
       if (!tree) continue
 
       if (config.type === 'btree') {
-        const treeTx = await tree.createTransaction()
         const candidate = this.evaluateBTreeCandidate(
           indexName,
           config as any,
           query,
           queryFields,
-          treeTx as unknown as BPTreeAsync<string | number, V>,
+          tree as unknown as BPTreePureAsync<string | number, V>,
           orderByField
         )
         if (candidate) {
@@ -393,13 +391,12 @@ export class Optimizer<T extends Record<string, any>> {
         }
       }
       else if (config.type === 'fts') {
-        const treeTx = await tree.createTransaction()
         const candidate = this.evaluateFTSCandidate(
           indexName,
           config as any,
           query,
           queryFields,
-          treeTx as unknown as BPTreeAsync<string | number, V>
+          tree as unknown as BPTreePureAsync<string | number, V>
         )
         if (candidate) {
           candidates.push({
@@ -417,14 +414,7 @@ export class Optimizer<T extends Record<string, any>> {
       }
     }
 
-    const rollback = () => {
-      for (const { tree } of candidates) {
-        tree.rollback()
-      }
-    }
-
     if (candidates.length === 0) {
-      rollback()
       return null
     }
 
@@ -472,7 +462,6 @@ export class Optimizer<T extends Record<string, any>> {
       driver: driver as any,
       others: others as any,
       compositeVerifyConditions,
-      rollback,
     }
   }
 }

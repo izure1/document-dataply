@@ -49,7 +49,7 @@ export class MetadataManager<T extends DocumentJSON> {
     callback: (tx: Transaction) => Promise<void>,
     tx?: Transaction
   ): Promise<void> {
-    await this.api.runWithDefaultWrite(async (tx: Transaction) => {
+    await this.api.withWriteTransaction(async (tx: Transaction) => {
       const innerMetadata = await this.getDocumentInnerMetadata(tx)
       const currentVersion = innerMetadata.schemeVersion ?? 0
       if (currentVersion < version) {
