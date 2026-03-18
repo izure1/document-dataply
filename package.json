@@ -43,7 +43,7 @@
   ],
   "dependencies": {
     "croner": "^10.0.1",
-    "dataply": "^0.0.26-alpha.12"
+    "dataply": "^0.0.26-alpha.13"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
