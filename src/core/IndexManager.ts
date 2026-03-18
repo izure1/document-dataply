@@ -231,7 +231,7 @@ export class IndexManager<T extends DocumentJSON> {
         if (headPk !== -1) {
           const tree = this.trees.get(name)
           if (tree) {
-            const strategy = (tree as any).strategy as import('./bptree/documentStrategy').DocumentSerializeStrategyAsync<Primitive>
+            const strategy = (tree as any).strategy as DocumentSerializeStrategyAsync<Primitive>
             await strategy.clearAllNodes(headPk)
           }
         }

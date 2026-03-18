@@ -307,9 +307,16 @@ export class MutationManager<T extends DocumentJSON> {
     return this.api.withWriteTransaction(async (tx: Transaction) => {
       const pks = await this.api.queryManager.getKeys(query)
       this.logger.debug(`Found ${pks.length} documents to delete`)
-      let deletedCount = 0
       const deletedFlatDocs: FlattenedDocumentJSON[] = []
+      const deletedPks: number[] = []
 
+      // 인덱스별 삭제 항목 수집용 맵
+      const batchDeleteMap: Map<string, [string | number, any][]> = new Map()
+      for (const indexName of this.api.trees.keys()) {
+        batchDeleteMap.set(indexName, [])
+      }
+
+      // 1단계: 모든 삭제 대상 문서 조회 및 인덱스 삭제 항목 수집
       for (let i = 0, len = pks.length; i < len; i++) {
         const pk = pks[i]
         const doc = await this.api.getDocument(pk, tx)
@@ -317,10 +324,10 @@ export class MutationManager<T extends DocumentJSON> {
 
         const flatDoc = this.api.flattenDocument(doc)
 
-        // 모든 인덱스 트리에서 삭제
         for (const [indexName, tree] of this.api.trees) {
           const config = this.api.indexManager.registeredIndices.get(indexName)
           if (!config) continue
+          const entries = batchDeleteMap.get(indexName)!
           if (config.type === 'fts') {
             const primaryField = this.api.indexManager.getPrimaryField(config)
             const v = flatDoc[primaryField]
@@ -328,33 +335,42 @@ export class MutationManager<T extends DocumentJSON> {
             const ftsConfig = this.api.indexManager.getFtsConfig(config)
             const tokens = ftsConfig ? tokenize(v, ftsConfig) : [v]
             for (let j = 0, jLen = tokens.length; j < jLen; j++) {
-              await tree.delete(this.api.indexManager.getTokenKey(pk, tokens[j] as string), { k: pk, v: tokens[j] })
+              entries.push([this.api.indexManager.getTokenKey(pk, tokens[j] as string), { k: pk, v: tokens[j] }])
             }
           }
           else {
             const indexVal = this.api.indexManager.getIndexValue(config, flatDoc)
             if (indexVal === undefined) continue
-            await tree.delete(pk, { k: pk, v: indexVal } as any)
+            entries.push([pk, { k: pk, v: indexVal }])
           }
-          await yieldEventLoop()
         }
 
-        // 삭제된 문서 축적
         deletedFlatDocs.push(flatDoc)
-
-        // 실제 레코드 삭제
-        await this.api.delete(pk, true, tx)
+        deletedPks.push(pk)
         await yieldEventLoop()
-        deletedCount++
+      }
+
+      // 2단계: 인덱스별 batchDelete 호출
+      for (const [indexName, tree] of this.api.trees) {
+        const entries = batchDeleteMap.get(indexName)!
+        if (entries.length === 0) continue
+        await tree.batchDelete(entries)
+        await yieldEventLoop()
+      }
+
+      // 3단계: 행 일괄 삭제
+      if (deletedPks.length > 0) {
+        await this.api.deleteBatch(deletedPks, true, tx)
+        await yieldEventLoop()
       }
 
       // 통계 provider에 delete 이벤트 일괄 전파
       await this.api.analysisManager.notifyDelete(deletedFlatDocs, tx)
       await yieldEventLoop()
 
-      this.logger.debug(`Successfully deleted ${deletedCount} documents`)
+      this.logger.debug(`Successfully deleted ${deletedPks.length} documents`)
 
-      return deletedCount
+      return deletedPks.length
     }, tx)
   }
 }

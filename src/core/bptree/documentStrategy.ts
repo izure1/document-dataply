@@ -68,8 +68,11 @@ export class DocumentSerializeStrategyAsync<T extends Primitive> extends Seriali
     const head: SerializeStrategyHead = JSON.parse(headRaw)
     const rootId = head.root
 
+    // 삭제할 PK들을 수집
+    const pksToDelete: number[] = []
+
     if (rootId !== null) {
-      // BFS로 모든 노드 순회하여 삭제
+      // BFS로 모든 노드 순회하여 PK 수집
       const queue: string[] = [rootId]
       const visited = new Set<string>()
 
@@ -97,12 +100,15 @@ export class DocumentSerializeStrategyAsync<T extends Primitive> extends Seriali
           }
         }
 
-        await this.api.delete(Number(nodeId), false, tx)
+        pksToDelete.push(Number(nodeId))
       }
     }
 
-    // head 행 자체 삭제
-    await this.api.delete(headPk, false, tx)
+    // head 행도 삭제 대상에 포함
+    pksToDelete.push(headPk)
+
+    // 일괄 삭제
+    await this.api.deleteBatch(pksToDelete, false, tx)
   }
 
   async readHead(): Promise<SerializeStrategyHead | null> {
