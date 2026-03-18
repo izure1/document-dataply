@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773869491394,
+  "lastUpdate": 1773876584321,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -4844,6 +4844,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 150.72,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "18975daa045d8d7dde1ed5627b21e845f7d4d164",
+          "message": "fix: analysis 시스템이 지정된 시간에 동작하지 않던 오류를 수정합니다",
+          "timestamp": "2026-03-19T08:28:50+09:00",
+          "tree_id": "03efaf8c342775cef324aa39b512e3874238106e",
+          "url": "https://github.com/izure1/document-dataply/commit/18975daa045d8d7dde1ed5627b21e845f7d4d164"
+        },
+        "date": 1773876583776,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2817.76,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 29.61,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 74.17,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 11.5,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 2432.12,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 127.58,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 148.48,
             "unit": "ms"
           }
         ]
