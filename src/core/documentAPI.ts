@@ -45,7 +45,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
     this.documentFormatter = new DocumentFormatter<T>()
     this.analysisManager = new AnalysisManager(
       this,
-      options.analysisSchedule ?? '* */1 * * *',
+      options.analysisSchedule ?? '0 */1 * * *',
       options.analysisSampleSize ?? 1000,
       this.loggerManager
     )
@@ -70,7 +70,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       this.logger.debug(`Indices initialized. Total indices: ${Object.keys(metadata.indices).length}`)
       this.analysisManager.registerBuiltinProviders()
       await this.analysisManager.initializeProviders(tx)
-      this.analysisManager.triggerCron()
+      this.analysisManager.resumeCron()
       this._initialized = true
       this.logger.info('Document database fully initialized')
       return tx

@@ -29,7 +29,11 @@ export class AnalysisManager<T extends DocumentJSON> {
       if (this.flushing) return
       await this.api.flushAnalysis()
     }, {
-      paused: true
+      paused: true,
+      unref: true,
+      catch: (err) => {
+        this.logger.error('Error in analysis cron job', err)
+      }
     })
   }
 
@@ -102,11 +106,11 @@ export class AnalysisManager<T extends DocumentJSON> {
   }
 
   /**
-   * Trigger the background analysis cron job.
+   * Resume the background analysis cron job.
    */
-  triggerCron(): void {
+  resumeCron(): void {
     if (this.cron && !this.cron.isRunning()) {
-      this.cron.trigger()
+      this.cron.resume()
     }
   }
 
