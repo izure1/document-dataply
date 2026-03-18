@@ -191,6 +191,14 @@ export class MutationManager<T extends DocumentJSON> {
     let updatedCount = 0
     const updatePairs: { oldDocument: FlattenedDocumentJSON, newDocument: FlattenedDocumentJSON }[] = []
 
+    // 인덱스별 삭제/삽입 항목 수집용 맵
+    const deleteMap: Map<string, [string | number, any][]> = new Map()
+    const insertMap: Map<string, [string | number, DataplyTreeValue<Primitive>][]> = new Map()
+    for (const indexName of this.api.trees.keys()) {
+      deleteMap.set(indexName, [])
+      insertMap.set(indexName, [])
+    }
+
     for (let i = 0, len = pks.length; i < len; i++) {
       const pk = pks[i]
       const doc = await this.api.getDocument(pk, tx)
@@ -200,31 +208,31 @@ export class MutationManager<T extends DocumentJSON> {
       const oldFlatDoc = this.api.flattenDocument(doc)
       const newFlatDoc = this.api.flattenDocument(updatedDoc)
 
-      // 변경된 인덱스 필드 동기화
+      // 변경된 인덱스 필드 동기화 항목 수집
       for (const [indexName, tree] of this.api.trees) {
         const config = this.api.indexManager.registeredIndices.get(indexName)
         if (!config) continue
+        const delEntries = deleteMap.get(indexName)!
+        const insEntries = insertMap.get(indexName)!
         if (config.type === 'fts') {
           const primaryField = this.api.indexManager.getPrimaryField(config)
           const oldV = oldFlatDoc[primaryField]
           const newV = newFlatDoc[primaryField]
           if (oldV === newV) continue
           const ftsConfig = this.api.indexManager.getFtsConfig(config)
-          // 기존 FTS 토큰 삭제
+          // 기존 FTS 토큰 삭제 항목 수집
           if (typeof oldV === 'string') {
             const oldTokens = ftsConfig ? tokenize(oldV, ftsConfig) : [oldV]
             for (let j = 0, jLen = oldTokens.length; j < jLen; j++) {
-              await tree.delete(this.api.indexManager.getTokenKey(pk, oldTokens[j] as string), { k: pk, v: oldTokens[j] })
+              delEntries.push([this.api.indexManager.getTokenKey(pk, oldTokens[j] as string), { k: pk, v: oldTokens[j] }])
             }
           }
-          // 새 FTS 토큰 삽입
+          // 새 FTS 토큰 삽입 항목 수집
           if (typeof newV === 'string') {
             const newTokens = ftsConfig ? tokenize(newV, ftsConfig) : [newV]
-            const batchInsertData: [string | number, DataplyTreeValue<Primitive>][] = []
             for (let j = 0, jLen = newTokens.length; j < jLen; j++) {
-              batchInsertData.push([this.api.indexManager.getTokenKey(pk, newTokens[j] as string), { k: pk, v: newTokens[j] }])
+              insEntries.push([this.api.indexManager.getTokenKey(pk, newTokens[j] as string), { k: pk, v: newTokens[j] }])
             }
-            await tree.batchInsert(batchInsertData)
           }
         }
         else {
@@ -234,17 +242,15 @@ export class MutationManager<T extends DocumentJSON> {
           // 값이 동일하면 스킵 (배열 비교를 위해 JSON.stringify 사용)
           if (JSON.stringify(oldIndexVal) === JSON.stringify(newIndexVal)) continue
 
-          // 기존 값 삭제
+          // 기존 값 삭제 항목 수집
           if (oldIndexVal !== undefined) {
-            await tree.delete(pk, { k: pk, v: oldIndexVal } as any)
+            delEntries.push([pk, { k: pk, v: oldIndexVal }])
           }
-          // 새 값 삽입
+          // 새 값 삽입 항목 수집
           if (newIndexVal !== undefined) {
-            await tree.batchInsert([[pk, { k: pk, v: newIndexVal } as any]])
+            insEntries.push([pk, { k: pk, v: newIndexVal } as any])
           }
         }
-
-        await yieldEventLoop()
       }
 
       // update pair 축적
@@ -254,6 +260,19 @@ export class MutationManager<T extends DocumentJSON> {
       await this.api.update(pk, JSON.stringify(updatedDoc), tx)
       await yieldEventLoop()
       updatedCount++
+    }
+
+    // 인덱스별 batchDelete → batchInsert 호출
+    for (const [indexName, tree] of this.api.trees) {
+      const delEntries = deleteMap.get(indexName)!
+      if (delEntries.length > 0) {
+        await tree.batchDelete(delEntries)
+      }
+      const insEntries = insertMap.get(indexName)!
+      if (insEntries.length > 0) {
+        await tree.batchInsert(insEntries)
+      }
+      await yieldEventLoop()
     }
 
     // 통계 provider에 update 이벤트 일괄 전파
