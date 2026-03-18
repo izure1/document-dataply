@@ -1,6 +1,6 @@
 import type { DocumentJSON } from '../types'
 import type { DocumentDataplyAPI } from './documentAPI'
-import type { Transaction } from 'dataply'
+import type { Transaction, Logger, LoggerManager } from 'dataply'
 
 /**
  * Abstract base class for analysis providers.
@@ -10,7 +10,15 @@ export abstract class AnalysisProvider<T extends DocumentJSON = DocumentJSON> {
   /** Overflow row PK assigned by AnalysisManager during initialization. */
   storageKey: number = -1
 
-  constructor(protected api: DocumentDataplyAPI<T>) { }
+  private _logger?: Logger
+  protected get logger(): Logger {
+    if (!this._logger) {
+      this._logger = this.loggerManager.create(`document-dataply:analysis:${this.name}`)
+    }
+    return this._logger
+  }
+
+  constructor(protected api: DocumentDataplyAPI<T>, protected loggerManager: LoggerManager) { }
 
   /**
    * Unique name of this analysis type (e.g. 'ftsTermCount').

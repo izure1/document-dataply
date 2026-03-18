@@ -6,7 +6,7 @@ import type {
 import type { DocumentDataplyAPI } from './documentAPI'
 import type { AnalysisProvider } from './AnalysisProvider'
 import { Cron } from 'croner'
-import { Transaction, Logger } from 'dataply'
+import { Transaction, Logger, LoggerManager } from 'dataply'
 import { RealtimeAnalysisProvider } from './RealtimeAnalysisProvider'
 import { IntervalAnalysisProvider } from './IntervalAnalysisProvider'
 import { BuiltinAnalysisProviders } from './analysis'
@@ -16,15 +16,20 @@ export class AnalysisManager<T extends DocumentJSON> {
   private cron: Cron | null = null
   private flushing: boolean = false
 
+  private logger: Logger
+
   constructor(
     private api: DocumentDataplyAPI<T>,
     schedule: string,
     public readonly sampleSize: number,
-    private logger: Logger
+    private loggerManager: LoggerManager
   ) {
+    this.logger = loggerManager.create('document-dataply:analysis')
     this.cron = new Cron(schedule, async () => {
       if (this.flushing) return
       await this.api.flushAnalysis()
+    }, {
+      paused: true
     })
   }
 
@@ -44,7 +49,7 @@ export class AnalysisManager<T extends DocumentJSON> {
    */
   registerBuiltinProviders(): void {
     for (const Provider of BuiltinAnalysisProviders) {
-      const instance = new Provider(this.api)
+      const instance = new Provider(this.api, this.loggerManager)
       this.registerProvider(instance)
     }
   }

@@ -13,6 +13,7 @@ export class FTSTermCount<T extends DocumentJSON = DocumentJSON> extends Interva
   private sampleSize: number = 0
 
   async serialize(tx: Transaction): Promise<string> {
+    this.logger.debug(`Starting serialize`)
     const docs = await this.sample({ count: this.api.analysisManager.sampleSize }, tx)
 
     this.termCount = {}
@@ -78,13 +79,16 @@ export class FTSTermCount<T extends DocumentJSON = DocumentJSON> extends Interva
 
     this.termCount = optimizedTermCount
 
+    this.logger.debug(`Serialize complete, sampleSize: ${this.sampleSize}`)
     return JSON.stringify({ _sampleSize: this.sampleSize, ...this.termCount })
   }
 
   async load(data: string | null, tx: Transaction): Promise<void> {
+    this.logger.debug(`Loading data`)
     this.termCount = {}
     this.sampleSize = 0
     if (!data) {
+      this.logger.debug(`No existing data found, initialized as empty`)
       return
     }
     try {
@@ -94,7 +98,9 @@ export class FTSTermCount<T extends DocumentJSON = DocumentJSON> extends Interva
         this.sampleSize = typeof _sampleSize === 'number' ? _sampleSize : 0
         this.termCount = rest
       }
+      this.logger.debug(`Successfully parsed existing data (sampleSize: ${this.sampleSize})`)
     } catch (e) {
+      this.logger.warn(`Failed to parse existing data`, e)
       // Ignore parse error
     }
   }

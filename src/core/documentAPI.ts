@@ -47,7 +47,7 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
       this,
       options.analysisSchedule ?? '* */1 * * *',
       options.analysisSampleSize ?? 1000,
-      this.loggerManager.create('document-dataply:analysis')
+      this.loggerManager
     )
 
     this.hook.onceAfter('close', async () => {
