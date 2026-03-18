@@ -223,6 +223,20 @@ export class IndexManager<T extends DocumentJSON> {
       const config = this.registeredIndices.get(name)!
 
       const metadata = await this.api.getDocumentInnerMetadata(tx)
+
+      // 인덱스에 사용된 모든 B+Tree 노드 행을 삭제하여 저장소 행을 회수
+      const indexInfo = metadata.indices[name]
+      if (indexInfo) {
+        const headPk = indexInfo[0]
+        if (headPk !== -1) {
+          const tree = this.trees.get(name)
+          if (tree) {
+            const strategy = (tree as any).strategy as import('./bptree/documentStrategy').DocumentSerializeStrategyAsync<Primitive>
+            await strategy.clearAllNodes(headPk)
+          }
+        }
+      }
+
       delete metadata.indices[name]
       await this.api.updateDocumentInnerMetadata(metadata, tx)
       this.indices = metadata.indices

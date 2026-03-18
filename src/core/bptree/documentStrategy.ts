@@ -1,7 +1,7 @@
 import type { DataplyTreeValue, Primitive } from '../../types'
 import {
   type SerializeStrategyHead,
-  BPTreeNode,
+  type BPTreeNode,
   SerializeStrategyAsync,
   Ryoiki
 } from 'dataply'
@@ -48,6 +48,61 @@ export class DocumentSerializeStrategyAsync<T extends Primitive> extends Seriali
   async delete(id: string): Promise<void> {
     const tx = this.txContext.get()
     await this.api.delete(+(id), false, tx)
+  }
+
+  /**
+   * headPk 행이 가리키는 B+Tree의 모든 노드 행과 head 행 자체를 삭제합니다.
+   * dropIndex 시 행을 회수하기 위해 사용합니다.
+   */
+  async clearAllNodes(headPk: number): Promise<void> {
+    const tx = this.txContext.get()
+
+    // head 행에서 JSON을 읽어 rootId를 얻음
+    const headRaw = await this.api.select(headPk, false, tx)
+    if (headRaw === null || headRaw === '' || headRaw.startsWith('__BPTREE_')) {
+      // 아직 초기화되지 않은 트리 - head 행만 삭제
+      await this.api.delete(headPk, false, tx)
+      return
+    }
+
+    const head: SerializeStrategyHead = JSON.parse(headRaw)
+    const rootId = head.root
+
+    if (rootId !== null) {
+      // BFS로 모든 노드 순회하여 삭제
+      const queue: string[] = [rootId]
+      const visited = new Set<string>()
+
+      while (queue.length > 0) {
+        const nodeId = queue.shift()!
+        if (visited.has(nodeId)) continue
+        visited.add(nodeId)
+
+        let node: BPTreeNode<unknown, unknown> | null = null
+        try {
+          const raw = await this.api.select(Number(nodeId), false, tx)
+          if (raw && !raw.startsWith('__BPTREE_')) {
+            node = JSON.parse(raw)
+          }
+        } catch {
+          // 이미 삭제되었거나 읽을 수 없는 노드 - 건너뜀
+        }
+
+        // 내부 노드라면 자식 노드 ID를 큐에 추가
+        if (node && !node.leaf) {
+          for (const childId of (node.keys as string[])) {
+            if (!visited.has(childId)) {
+              queue.push(childId)
+            }
+          }
+        }
+
+        await this.api.delete(Number(nodeId), false, tx)
+      }
+    }
+
+    // head 행 자체 삭제
+    await this.api.delete(headPk, false, tx)
   }
 
   async readHead(): Promise<SerializeStrategyHead | null> {
