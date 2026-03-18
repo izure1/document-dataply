@@ -394,7 +394,8 @@ export class QueryManager<T extends DocumentJSON> {
               }
               if (hasMissing) { passed = false; break }
               fieldValue = values
-            } else {
+            }
+            else {
               fieldValue = flatDoc[other.field]
               if (fieldValue === undefined) { passed = false; break }
             }

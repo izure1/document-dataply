@@ -17,7 +17,8 @@ async function run() {
     await db.insert({ name: 'CommittedData' })
     // No close(), just exit to simulate crash after commit
     process.exit(0)
-  } else {
+  }
+  else {
     await db.withWriteTransaction(async (tx) => {
       await db.insert({ name: 'UncommittedData' }, tx)
       throw new Error('Crash')

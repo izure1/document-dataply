@@ -144,7 +144,8 @@ export class Optimizer<T extends Record<string, any>> {
             compositeVerifyFields.push(field)
           }
         }
-      } else {
+      }
+      else {
         if (field !== primaryField) {
           compositeVerifyFields.push(field)
         }

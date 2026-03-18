@@ -83,7 +83,8 @@ export class IndexManager<T extends DocumentJSON> {
         if (!isNewlyCreated) {
           backfillTargets.push(indexName)
         }
-      } else {
+      }
+      else {
         const [_pk, existingConfig] = existingIndex
         if (JSON.stringify(existingConfig) !== JSON.stringify(config)) {
           metadata.indices[indexName] = [_pk, config]

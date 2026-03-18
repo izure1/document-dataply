@@ -84,7 +84,8 @@ export class AnalysisManager<T extends DocumentJSON> {
         provider.storageKey = header[name]
         const raw = await this.api.select(header[name], false, tx)
         await provider.load(raw, tx)
-      } else {
+      }
+      else {
         // 새 provider: overflow row 생성, storageKey 할당, header 갱신
         const pk = await this.api.insertAsOverflow(JSON.stringify(null), false, tx)
         provider.storageKey = pk
@@ -241,7 +242,8 @@ export class AnalysisManager<T extends DocumentJSON> {
     if (header[type] != null) {
       // Update existing data row
       await this.api.update(header[type], data, tx)
-    } else {
+    }
+    else {
       // Create new data row
       const pk = await this.api.insertAsOverflow(data, false, tx)
       header[type] = pk
