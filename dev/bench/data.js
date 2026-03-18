@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773869140272,
+  "lastUpdate": 1773869491394,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -4785,6 +4785,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 149.43,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "086ea51f44de68d349519495ba7bfa9bb0c88609",
+          "message": "feat: 인덱스 및 문서 업데이트 속도 최적화를 위한 deleteBatch 도입",
+          "timestamp": "2026-03-19T06:30:40+09:00",
+          "tree_id": "03b471238f009bed28c29b49f10cf09261d408a8",
+          "url": "https://github.com/izure1/document-dataply/commit/086ea51f44de68d349519495ba7bfa9bb0c88609"
+        },
+        "date": 1773869490958,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2808.06,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 33.17,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 75.53,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 13.72,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 2397.35,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 127.35,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 150.72,
             "unit": "ms"
           }
         ]
