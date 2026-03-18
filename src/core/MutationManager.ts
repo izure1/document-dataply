@@ -9,7 +9,6 @@ import type {
 import type { DocumentDataplyAPI } from './documentAPI'
 import { Transaction, Logger, BPTreePureAsync } from 'dataply'
 import { tokenize } from '../utils/tokenizer'
-import { catchPromise } from '../utils/catchPromise'
 import { yieldEventLoop } from '../utils/eventLoopManager'
 
 export class MutationManager<T extends DocumentJSON> {
@@ -65,15 +64,13 @@ export class MutationManager<T extends DocumentJSON> {
           for (let i = 0, len = tokens.length; i < len; i++) {
             const token = tokens[i]
             const keyToInsert = this.api.indexManager.getTokenKey(dpk, token as string)
-            const [error] = await catchPromise(tree.insert(keyToInsert, { k: dpk, v: token }))
-            if (error) throw error
+            await tree.insert(keyToInsert, { k: dpk, v: token })
           }
         }
         else {
           const indexVal = this.api.indexManager.getIndexValue(config, flattenDocument)
           if (indexVal === undefined) continue
-          const [error] = await catchPromise(tree.insert(dpk, { k: dpk, v: indexVal } as any))
-          if (error) throw error
+          await tree.insert(dpk, { k: dpk, v: indexVal } as any)
         }
       }
 
@@ -160,17 +157,11 @@ export class MutationManager<T extends DocumentJSON> {
         const isEmptyTree = await this.isTreeEmpty(tree)
         if (isEmptyTree) {
           this.logger.info(`Bulk loading ${batchInsertData.length} items into index ${indexName}`)
-          const [error] = await catchPromise(tree.bulkLoad(batchInsertData))
-          if (error) {
-            throw error
-          }
+          await tree.bulkLoad(batchInsertData)
         }
         else {
           this.logger.info(`Batch inserting ${batchInsertData.length} items into index ${indexName}`)
-          const [error] = await catchPromise(tree.batchInsert(batchInsertData))
-          if (error) {
-            throw error
-          }
+          await tree.batchInsert(batchInsertData)
         }
 
         await yieldEventLoop()
@@ -213,14 +204,12 @@ export class MutationManager<T extends DocumentJSON> {
       for (const [indexName, tree] of this.api.trees) {
         const config = this.api.indexManager.registeredIndices.get(indexName)
         if (!config) continue
-
         if (config.type === 'fts') {
           const primaryField = this.api.indexManager.getPrimaryField(config)
           const oldV = oldFlatDoc[primaryField]
           const newV = newFlatDoc[primaryField]
           if (oldV === newV) continue
           const ftsConfig = this.api.indexManager.getFtsConfig(config)
-
           // 기존 FTS 토큰 삭제
           if (typeof oldV === 'string') {
             const oldTokens = ftsConfig ? tokenize(oldV, ftsConfig) : [oldV]
@@ -332,7 +321,6 @@ export class MutationManager<T extends DocumentJSON> {
         for (const [indexName, tree] of this.api.trees) {
           const config = this.api.indexManager.registeredIndices.get(indexName)
           if (!config) continue
-
           if (config.type === 'fts') {
             const primaryField = this.api.indexManager.getPrimaryField(config)
             const v = flatDoc[primaryField]
