@@ -36,23 +36,27 @@ If the server crashes while deducting points from A and adding them to B, fatal 
 
 A transaction is a safety rule stating: **"All specified tasks must either be fully completed, or entirely rolled back as if they were never attempted."**
 
-### Controlling Transactions (`tx`)
+### Controlling Transactions (`withWriteTransaction` & `withReadTransaction`)
 
-Create a transaction object and pass it as a tag at the end of each function to proceed with the tasks. Commit the changes upon success, or Rollback immediately upon failure.
+Use the `withWriteTransaction` method to encapsulate your database operations within a callback. If the callback finishes successfully, the transaction is automatically committed. If an error is thrown inside the callback, the transaction is automatically rolled back.
+
+**💡 Concurrency and Parallel Processing Rules:**
+- Even if `withWriteTransaction` is called concurrently from multiple places, they are internally **automatically serialized** and executed sequentially to ensure safety.
+- If you only perform pure read operations that do not modify state, use `withReadTransaction`. `withReadTransaction` can be executed **concurrently in parallel** without bottlenecks alongside other `withWriteTransaction` or `withReadTransaction` operations.
+- The core reason to use `withReadTransaction` is to guarantee a consistent **point-in-time snapshot**. Because it reads data based on the exact moment the read transaction begins, the data being read will not be altered or contaminated, even if other write operations are completed while it is running.
 
 ```typescript
-const tx = db.createTransaction();
-
 try {
-  // Attach the declared tx object at the end to place these in a temporary memory standby state.
-  await db.insert({ name: 'A-Payment Deduction Reflected' }, tx);
-  await db.insert({ name: 'B-Deposit Charge Reflected' }, tx);
-
-  // If everything is perfect, save to the actual file (Commit).
-  await tx.commit();
+  // Pass a callback function to withWriteTransaction
+  await db.withWriteTransaction(async (tx) => {
+    // Attach the provided tx object at the end of each operation
+    await db.insert({ name: 'A-Payment Deduction Reflected' }, tx);
+    await db.insert({ name: 'B-Deposit Charge Reflected' }, tx);
+    
+    // If the callback finishes without errors, it automatically commits!
+  });
 } catch (error) {
-  // Error occurred midway! Discard all ongoing changes as if they never happened (Rollback).
-  await tx.rollback();
+  // If an error occurs midway, it automatically discards all ongoing changes (Rollback).
   console.log('Error defended, task rolled back.', error);
 }
 ```
