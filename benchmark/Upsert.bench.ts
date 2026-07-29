@@ -10,7 +10,7 @@ type BenchDoc = {
 }
 
 const dbPath = path.join(__dirname, 'bench_upsert.db')
-const ITEM_COUNT = 1000
+const ITEM_COUNT = 100
 
 async function runUpsertBenchmark() {
   const results: BenchResult[] = []
