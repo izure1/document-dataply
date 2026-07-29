@@ -80,6 +80,23 @@ There are two ways to modify documents according to your needs.
   );
   ```
 
+- **Upsert Control (`upsert` & `upsertBatch`)**  
+  Inserts a document if it does not exist, or updates (full update) if it already exists based on `_id`.
+  - Without `_id` or if `_id` is not present in the DB: Inserts as a new document with an auto-generated `_id`.
+  - If `_id` exists in the DB: Performs a full update (`fullUpdate`) on the existing document.
+  - Returns the count of updated documents (`0` if inserted, `1` if updated for single `upsert`).
+
+  ```typescript
+  // Single document upsert
+  const updatedCount = await db.upsert({ _id: 1, name: 'Alice Updated', age: 26 });
+
+  // Batch document upsert
+  const updatedBatchCount = await db.upsertBatch([
+    { name: 'Bob', age: 30 }, // Insert (no _id)
+    { _id: 1, name: 'Alice Re-updated', age: 27 } // Update (existing _id)
+  ]);
+  ```
+
 - **Document Deletion (`delete`)**  
   Permanently removes documents that fit specific search conditions.
   ```typescript

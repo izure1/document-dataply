@@ -110,6 +110,18 @@ const activeSeniors = await db.select({
 }).drain();
 ```
 
+### Upsert Operations (Insert or Full Update)
+```typescript
+// Single Upsert: Inserts if _id is missing/not found, updates if _id exists
+await db.upsert({ _id: 1, name: 'John Doe', age: 31 });
+
+// Batch Upsert: Process multiple inserts and updates in a single batch
+await db.upsertBatch([
+  { name: 'New User', age: 20 },                    // Inserted with auto _id
+  { _id: 1, name: 'John Doe Updated', age: 32 }    // Updated existing document
+]);
+```
+
 ---
 
 ## 📚 Detailed Manual
