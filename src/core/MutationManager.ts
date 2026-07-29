@@ -319,6 +319,51 @@ export class MutationManager<T extends DocumentJSON> {
     }, tx)
   }
 
+  /**
+   * _id 유무 및 DB 존재 여부에 따라 삽입 또는 fullUpdate를 수행합니다.
+   *
+   * - `_id` 없음           → 일반 삽입 (자동 ID 생성)
+   * - `_id` 있음, DB 없음  → `_id` 무시 후 일반 삽입 (자동 ID 생성)
+   * - `_id` 있음, DB 있음  → fullUpdate
+   *
+   * @param document The document to upsert (must include _id for update path)
+   * @param tx The transaction to use
+   * @returns 업데이트된 문서의 개수 (삽입의 경우 0, 업데이트의 경우 1)
+   */
+  async upsert(document: DataplyDocument<T>, tx?: Transaction): Promise<number> {
+    return this.api.withWriteTransaction(async (tx: Transaction) => {
+      const id = (document as any)._id as number | undefined
+
+      // _id 없음 → 그냥 삽입
+      if (id === undefined || id === null) {
+        const { _id: _, ...rest } = document as any
+        await this.insertSingleDocument(rest as T, tx)
+        return 0
+      }
+
+      // _id 있음 → DB 존재 여부 확인
+      const pks = await this.api.queryManager.getKeys({ _id: id } as any)
+
+      // DB에 없음 → _id 무시, 일반 삽입
+      if (pks.length === 0) {
+        const { _id: _, ...rest } = document as any
+        await this.insertSingleDocument(rest as T, tx)
+        return 0
+      }
+
+      // DB에 있음 → fullUpdate
+      const pk = pks[0]
+      const existing = await this.api.getDocument(pk, tx)
+      const updatedDoc: DataplyDocument<T> = { ...document, _id: existing._id }
+      await this.updateInternal(
+        { _id: id } as any,
+        () => updatedDoc,
+        tx
+      )
+      return 1
+    }, tx)
+  }
+
   async deleteDocuments(
     query: Partial<DocumentDataplyQuery<T>>,
     tx?: Transaction

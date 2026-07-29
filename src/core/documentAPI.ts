@@ -292,6 +292,19 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
   }
 
   /**
+   * Upsert a document into the database.
+   * - No `_id`             → insert (auto-generated ID)
+   * - `_id` not in DB     → ignore `_id`, insert (auto-generated ID)
+   * - `_id` exists in DB  → fullUpdate
+   * @param document The document to upsert
+   * @param tx The transaction to use
+   * @returns 업데이트된 문서의 개수 (삽입의 경우 0, 업데이트의 경우 1)
+   */
+  async upsertDocument(document: DataplyDocument<T>, tx?: Transaction): Promise<number> {
+    return this.mutationManager.upsert(document, tx)
+  }
+
+  /**
    * Insert a batch of documents into the database
    * @param documents The documents to insert
    * @param tx The transaction to use
