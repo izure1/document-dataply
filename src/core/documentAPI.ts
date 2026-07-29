@@ -300,9 +300,21 @@ export class DocumentDataplyAPI<T extends DocumentJSON> extends DataplyAPI {
    * @param tx The transaction to use
    * @returns 업데이트된 문서의 개수 (삽입의 경우 0, 업데이트의 경우 1)
    */
-  async upsertDocument(document: DataplyDocument<T>, tx?: Transaction): Promise<number> {
+  async upsertDocument(document: T | DataplyDocument<T>, tx?: Transaction): Promise<number> {
     return this.mutationManager.upsert(document, tx)
   }
+
+  /**
+   * Upsert a batch of documents into the database.
+   * @param documents The documents to upsert
+   * @param tx The transaction to use
+   * @returns 업데이트된 문서의 개수
+   */
+  async upsertBatchDocuments(documents: (T | DataplyDocument<T>)[], tx?: Transaction): Promise<number> {
+    return this.mutationManager.upsertBatch(documents, tx)
+  }
+
+
 
   /**
    * Insert a batch of documents into the database

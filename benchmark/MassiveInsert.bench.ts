@@ -102,7 +102,7 @@ async function main() {
     resultsMap.upsertInsert.push(endUpsertInsert - startUpsertInsert)
 
     // 6. Upsert (Update Path - Single)
-    console.log(`  [6/9] Starting Upsert (Update Path - Single)...`)
+    console.log(`  [6/10] Starting Upsert (Update Path - Single)...`)
     const startUpsertUpdate = performance.now()
     await db.upsert({
       _id: 100,
@@ -116,22 +116,49 @@ async function main() {
     const endUpsertUpdate = performance.now()
     resultsMap.upsertUpdate.push(endUpsertUpdate - startUpsertUpdate)
 
-    // 7. Delete Performance
-    console.log(`  [7/9] Starting Delete (Bulk)...`)
+    // 7. UpsertBatch (Mixed Insert & Update Batch)
+    console.log(`  [7/10] Starting UpsertBatch (Mixed 100 items)...`)
+    const startUpsertBatch = performance.now()
+    const mixedBatch: DataplyDocument<MassiveDoc>[] = []
+    for (let k = 1; k <= 50; k++) {
+      mixedBatch.push({
+        _id: k,
+        id: k, guid: `guid-${k}-upserted`, isActive: true, balance: '$888',
+        age: 30, eyeColor: 'blue', name: `User ${k} Upserted`, gender: 'male',
+        company: 'Company 2', email: `user${k}_upserted@example.com`, phone: `+1 ${k}`,
+        address: `Address ${k}`, registered: new Date().toISOString(),
+        title: `Title ${k}`, content: `Content ${k}`, tags: ['batch']
+      } as DataplyDocument<MassiveDoc>)
+    }
+    for (let k = 10001; k <= 10050; k++) {
+      mixedBatch.push({
+        id: k, guid: `guid-${k}`, isActive: false, balance: '$555',
+        age: 25, eyeColor: 'green', name: `New User ${k}`, gender: 'female',
+        company: 'Company 3', email: `newuser${k}@example.com`, phone: `+1 ${k}`,
+        address: `Address ${k}`, registered: new Date().toISOString(),
+        title: `Title ${k}`, content: `Content ${k}`, tags: ['new']
+      } as DataplyDocument<MassiveDoc>)
+    }
+    await db.upsertBatch(mixedBatch)
+    const endUpsertBatch = performance.now()
+    resultsMap.upsertBatch.push(endUpsertBatch - startUpsertBatch)
+
+    // 8. Delete Performance
+    console.log(`  [8/10] Starting Delete (Bulk)...`)
     const startDelete = performance.now()
     await db.delete({ company: 'Company 10' } as any)
     const endDelete = performance.now()
     resultsMap.delete.push(endDelete - startDelete)
 
-    // 8. FTS Single Keyword Search
-    console.log(`  [8/9] Starting FTS Single Keyword Search...`)
+    // 9. FTS Single Keyword Search
+    console.log(`  [9/10] Starting FTS Single Keyword Search...`)
     const startSearchSingle = performance.now()
     await db.select({ content: { match: 'content' } } as any).drain()
     const endSearchSingle = performance.now()
     resultsMap.ftsSearchSingle.push(endSearchSingle - startSearchSingle)
 
-    // 9. FTS Multi Keyword Search
-    console.log(`  [9/9] Starting FTS Multi Keyword Search...`)
+    // 10. FTS Multi Keyword Search
+    console.log(`  [10/10] Starting FTS Multi Keyword Search...`)
     const startSearchMulti = performance.now()
     await db.select({ content: { match: 'document number' } } as any).drain()
     const endSearchMulti = performance.now()
@@ -147,6 +174,7 @@ async function main() {
     fullUpdate: [] as number[],
     upsertInsert: [] as number[],
     upsertUpdate: [] as number[],
+    upsertBatch: [] as number[],
     delete: [] as number[],
     ftsSearchSingle: [] as number[],
     ftsSearchMulti: [] as number[]
@@ -171,10 +199,12 @@ async function main() {
     formatResult('Full Update (Single)', resultsMap.fullUpdate),
     formatResult('Upsert (Insert Single)', resultsMap.upsertInsert),
     formatResult('Upsert (Update Single)', resultsMap.upsertUpdate),
+    formatResult('UpsertBatch (Mixed 100 items)', resultsMap.upsertBatch),
     formatResult('Delete (Bulk)', resultsMap.delete),
     formatResult('FtsSearch (Single Keyword)', resultsMap.ftsSearchSingle),
     formatResult('FtsSearch (Multi Keyword)', resultsMap.ftsSearchMulti)
   ]
+
 
   printSummary(finalResults)
 

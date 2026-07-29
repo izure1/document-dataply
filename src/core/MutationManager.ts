@@ -330,13 +330,13 @@ export class MutationManager<T extends DocumentJSON> {
    * @param tx The transaction to use
    * @returns 업데이트된 문서의 개수 (삽입의 경우 0, 업데이트의 경우 1)
    */
-  async upsert(document: DataplyDocument<T>, tx?: Transaction): Promise<number> {
+  async upsert(document: T | DataplyDocument<T>, tx?: Transaction): Promise<number> {
     return this.api.withWriteTransaction(async (tx: Transaction) => {
-      const id = document._id as number | undefined
+      const id = (document as any)._id as number | undefined
 
       // _id 없음 → 그냥 삽입
       if (id === undefined || id === null) {
-        const { _id: _, ...rest } = document as T
+        const { _id: _, ...rest } = document as any
         await this.insertSingleDocument(rest as T, tx)
         return 0
       }
@@ -346,7 +346,7 @@ export class MutationManager<T extends DocumentJSON> {
 
       // DB에 없음 → _id 무시, 일반 삽입
       if (pks.length === 0) {
-        const { _id: _, ...rest } = document as T
+        const { _id: _, ...rest } = document as any
         await this.insertSingleDocument(rest as T, tx)
         return 0
       }
@@ -354,7 +354,7 @@ export class MutationManager<T extends DocumentJSON> {
       // DB에 있음 → fullUpdate
       const pk = pks[0]
       const existing = await this.api.getDocument(pk, tx)
-      const updatedDoc: DataplyDocument<T> = { ...document, _id: existing._id }
+      const updatedDoc: DataplyDocument<T> = { ...(document as any), _id: existing._id }
       await this.updateInternal(
         { _id: id } as any,
         () => updatedDoc,
@@ -363,6 +363,71 @@ export class MutationManager<T extends DocumentJSON> {
       return 1
     }, tx)
   }
+
+  /**
+   * 입력받은 문서 배열에 대해 배치로 upsert(삽입 또는 fullUpdate)를 수행합니다.
+   *
+   * - `_id` 없음 또는 DB에 없음 → `_id` 무시 후 일괄 삽입 (insertBatch)
+   * - `_id` 있고 DB에 있음      → fullUpdate
+   *
+   * @param documents The documents to upsert
+   * @param tx The transaction to use
+   * @returns 업데이트된 문서의 개수
+   */
+  async upsertBatch(documents: (T | DataplyDocument<T>)[], tx?: Transaction): Promise<number> {
+    if (documents.length === 0) {
+      return 0
+    }
+
+    return this.api.withWriteTransaction(async (tx: Transaction) => {
+      const docsToInsert: T[] = []
+      const docsToUpdate: DataplyDocument<T>[] = []
+
+      for (let i = 0, len = documents.length; i < len; i++) {
+        const doc = documents[i] as any
+        const id = doc._id as number | undefined
+
+        if (id === undefined || id === null) {
+          const { _id: _, ...rest } = doc
+          docsToInsert.push(rest as T)
+        } else {
+          const pks = await this.api.queryManager.getKeys({ _id: id } as any)
+          if (pks.length === 0) {
+            const { _id: _, ...rest } = doc
+            docsToInsert.push(rest as T)
+          } else {
+            docsToUpdate.push(doc as DataplyDocument<T>)
+          }
+        }
+      }
+
+      if (docsToInsert.length > 0) {
+        await this.insertBatchDocuments(docsToInsert, tx)
+      }
+
+      let updatedCount = 0
+      for (let i = 0, len = docsToUpdate.length; i < len; i++) {
+        const doc = docsToUpdate[i]
+        const id = doc._id as number
+        const pks = await this.api.queryManager.getKeys({ _id: id } as any)
+        if (pks.length > 0) {
+          const pk = pks[0]
+          const existing = await this.api.getDocument(pk, tx)
+          const updatedDoc: DataplyDocument<T> = { ...doc, _id: existing._id }
+          await this.updateInternal(
+            { _id: id } as any,
+            () => updatedDoc,
+            tx
+          )
+          updatedCount++
+        }
+      }
+
+      return updatedCount
+    }, tx)
+  }
+
+
 
   async deleteDocuments(
     query: Partial<DocumentDataplyQuery<T>>,
