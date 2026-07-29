@@ -13,6 +13,13 @@
 `document-dataply` is a high-performance **Document Database** implemented in pure JavaScript. 
 It prevents server memory (RAM) exhaustion even when handling millions of records, and supports ultra-fast searching and batch processing systems. It can be used intuitively without the complex tuning required by RDBMS.
 
+### Live Demo
+
+[https://document-dataply-demo.onrender.com/](https://document-dataply-demo.onrender.com/)
+
+> [!NOTE]
+> The demo is hosted on a **free-tier server**, so response times and benchmark results may be noticeably slower than in a production environment. Performance may also vary depending on the hosting server's current load. The demo is intended to showcase the library's functionality rather than provide representative performance measurements.
+
 ### ✨ Key Features
 
 - **JSON Document Based**: Reads and writes data in raw JavaScript Object (JSON) format. Easily supports querying deeply nested object arrays (`a.b.c`).
