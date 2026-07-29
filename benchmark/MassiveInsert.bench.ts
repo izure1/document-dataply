@@ -1,6 +1,7 @@
 import { DocumentDataply } from '../src/core'
+import type { DataplyDocument } from '../src/types'
 import * as path from 'node:path'
-import { runBenchmark, printSummary, cleanupDb, BenchResult, saveResultsJson } from './bench_util'
+import { printSummary, cleanupDb, BenchResult, saveResultsJson } from './bench_util'
 
 type MassiveDoc = {
   id: number
@@ -44,7 +45,7 @@ async function main() {
     await db.init()
 
     // 1. Insert Performance
-    console.log(`  [1/7] Starting InsertBatch...`)
+    console.log(`  [1/9] Starting InsertBatch...`)
     const startInsert = performance.now()
     for (let i = 0; i < TOTAL_ITEMS; i += BATCH_SIZE) {
       const documents: MassiveDoc[] = []
@@ -67,42 +68,70 @@ async function main() {
     resultsMap.insert.push(endInsert - startInsert)
 
     // 2. Select Performance (Indexed field)
-    console.log(`  [2/7] Starting Indexed Select...`)
+    console.log(`  [2/9] Starting Indexed Select...`)
     const startSelect = performance.now()
     await db.select({ company: 'Company 1' }).drain()
     const endSelect = performance.now()
     resultsMap.select.push(endSelect - startSelect)
 
     // 3. Partial Update Performance
-    console.log(`  [3/7] Starting Partial Update (Bulk)...`)
+    console.log(`  [3/9] Starting Partial Update (Bulk)...`)
     const startPartial = performance.now()
     await db.partialUpdate({ company: 'Company 5' } as any, { isActive: false })
     const endPartial = performance.now()
     resultsMap.partialUpdate.push(endPartial - startPartial)
 
     // 4. Full Update Performance
-    console.log(`  [4/7] Starting Full Update (Single)...`)
+    console.log(`  [4/9] Starting Full Update (Single)...`)
     const startFull = performance.now()
     await db.fullUpdate({ _id: 500 } as any, (doc) => ({ ...doc, balance: '$999,999' }))
     const endFull = performance.now()
     resultsMap.fullUpdate.push(endFull - startFull)
 
-    // 5. Delete Performance
-    console.log(`  [5/7] Starting Delete (Bulk)...`)
+    // 5. Upsert (Insert Path - Single)
+    console.log(`  [5/9] Starting Upsert (Insert Path - Single)...`)
+    const startUpsertInsert = performance.now()
+    await db.upsert({
+      id: 999999, guid: 'guid-999999', isActive: true, balance: '$500',
+      age: 30, eyeColor: 'blue', name: 'Upsert New User', gender: 'male',
+      company: 'Company 1', email: 'upsert@example.com', phone: '+1 9999',
+      address: 'Address 9999', registered: new Date().toISOString(),
+      title: 'Upsert Title', content: 'Upsert content', tags: ['upsert']
+    } as DataplyDocument<MassiveDoc>)
+    const endUpsertInsert = performance.now()
+    resultsMap.upsertInsert.push(endUpsertInsert - startUpsertInsert)
+
+    // 6. Upsert (Update Path - Single)
+    console.log(`  [6/9] Starting Upsert (Update Path - Single)...`)
+    const startUpsertUpdate = performance.now()
+    await db.upsert({
+      _id: 100,
+      id: 100, guid: 'guid-100-updated', isActive: false, balance: '$1,000,000',
+      age: 35, eyeColor: 'green', name: 'User 100 Upserted', gender: 'female',
+      company: 'Company 1', email: 'user100_upserted@example.com', phone: '+1 100',
+      address: 'Address 100 Updated', registered: new Date().toISOString(),
+      title: 'Document Title 100 Updated', content: 'Updated content via upsert',
+      tags: ['tag100', 'upserted']
+    } as DataplyDocument<MassiveDoc>)
+    const endUpsertUpdate = performance.now()
+    resultsMap.upsertUpdate.push(endUpsertUpdate - startUpsertUpdate)
+
+    // 7. Delete Performance
+    console.log(`  [7/9] Starting Delete (Bulk)...`)
     const startDelete = performance.now()
     await db.delete({ company: 'Company 10' } as any)
     const endDelete = performance.now()
     resultsMap.delete.push(endDelete - startDelete)
 
-    // 6. FTS Single Keyword Search
-    console.log(`  [6/7] Starting FTS Single Keyword Search...`)
+    // 8. FTS Single Keyword Search
+    console.log(`  [8/9] Starting FTS Single Keyword Search...`)
     const startSearchSingle = performance.now()
     await db.select({ content: { match: 'content' } } as any).drain()
     const endSearchSingle = performance.now()
     resultsMap.ftsSearchSingle.push(endSearchSingle - startSearchSingle)
 
-    // 7. FTS Multi Keyword Search
-    console.log(`  [7/7] Starting FTS Multi Keyword Search...`)
+    // 9. FTS Multi Keyword Search
+    console.log(`  [9/9] Starting FTS Multi Keyword Search...`)
     const startSearchMulti = performance.now()
     await db.select({ content: { match: 'document number' } } as any).drain()
     const endSearchMulti = performance.now()
@@ -116,6 +145,8 @@ async function main() {
     select: [] as number[],
     partialUpdate: [] as number[],
     fullUpdate: [] as number[],
+    upsertInsert: [] as number[],
+    upsertUpdate: [] as number[],
     delete: [] as number[],
     ftsSearchSingle: [] as number[],
     ftsSearchMulti: [] as number[]
@@ -138,6 +169,8 @@ async function main() {
     formatResult('Select (Indexed Equality)', resultsMap.select),
     formatResult('Partial Update (Bulk)', resultsMap.partialUpdate),
     formatResult('Full Update (Single)', resultsMap.fullUpdate),
+    formatResult('Upsert (Insert Single)', resultsMap.upsertInsert),
+    formatResult('Upsert (Update Single)', resultsMap.upsertUpdate),
     formatResult('Delete (Bulk)', resultsMap.delete),
     formatResult('FtsSearch (Single Keyword)', resultsMap.ftsSearchSingle),
     formatResult('FtsSearch (Multi Keyword)', resultsMap.ftsSearchMulti)

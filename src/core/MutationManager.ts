@@ -332,11 +332,11 @@ export class MutationManager<T extends DocumentJSON> {
    */
   async upsert(document: DataplyDocument<T>, tx?: Transaction): Promise<number> {
     return this.api.withWriteTransaction(async (tx: Transaction) => {
-      const id = (document as any)._id as number | undefined
+      const id = document._id as number | undefined
 
       // _id 없음 → 그냥 삽입
       if (id === undefined || id === null) {
-        const { _id: _, ...rest } = document as any
+        const { _id: _, ...rest } = document as T
         await this.insertSingleDocument(rest as T, tx)
         return 0
       }
@@ -346,7 +346,7 @@ export class MutationManager<T extends DocumentJSON> {
 
       // DB에 없음 → _id 무시, 일반 삽입
       if (pks.length === 0) {
-        const { _id: _, ...rest } = document as any
+        const { _id: _, ...rest } = document as T
         await this.insertSingleDocument(rest as T, tx)
         return 0
       }

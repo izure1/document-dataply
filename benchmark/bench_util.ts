@@ -62,19 +62,23 @@ export function printSummary(results: BenchResult[]) {
  * Clean up database files.
  */
 export function cleanupDb(dbPath: string) {
-  if (fs.existsSync(dbPath)) {
-    fs.unlinkSync(dbPath)
-  }
-  const dir = path.dirname(dbPath)
-  const base = path.basename(dbPath)
-  if (fs.existsSync(dir)) {
-    const files = fs.readdirSync(dir)
-    for (const file of files) {
-      if (file.startsWith(base + '.')) {
-        fs.unlinkSync(path.join(dir, file))
+  try {
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath)
+    }
+    const dir = path.dirname(dbPath)
+    const base = path.basename(dbPath)
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir)
+      for (const file of files) {
+        if (file.startsWith(base)) {
+          try {
+            fs.unlinkSync(path.join(dir, file))
+          } catch { }
+        }
       }
     }
-  }
+  } catch { }
 }
 
 /**
