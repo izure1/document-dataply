@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773881334018,
+  "lastUpdate": 1785334673299,
   "repoUrl": "https://github.com/izure1/document-dataply",
   "entries": {
     "JavaScript Benchmark": [
@@ -5021,6 +5021,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "FtsSearch (Multi Keyword)",
             "value": 150.6,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "committer": {
+            "email": "izure@naver.com",
+            "name": "izure",
+            "username": "izure1"
+          },
+          "distinct": true,
+          "id": "e99d5c7cce5f936388664cdda83e5f3f20c4f87c",
+          "message": "feat: upsertBatch 메서드 추가",
+          "timestamp": "2026-07-29T23:13:06+09:00",
+          "tree_id": "3d68fd23eb62f8bc61c0141148b3770a1b34ef8e",
+          "url": "https://github.com/izure1/document-dataply/commit/e99d5c7cce5f936388664cdda83e5f3f20c4f87c"
+        },
+        "date": 1785334672920,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "InsertBatch (5k items)",
+            "value": 2793.71,
+            "unit": "ms"
+          },
+          {
+            "name": "Select (Indexed Equality)",
+            "value": 29.58,
+            "unit": "ms"
+          },
+          {
+            "name": "Partial Update (Bulk)",
+            "value": 73.22,
+            "unit": "ms"
+          },
+          {
+            "name": "Full Update (Single)",
+            "value": 12.99,
+            "unit": "ms"
+          },
+          {
+            "name": "Upsert (Insert Single)",
+            "value": 40.23,
+            "unit": "ms"
+          },
+          {
+            "name": "Upsert (Update Single)",
+            "value": 134.38,
+            "unit": "ms"
+          },
+          {
+            "name": "UpsertBatch (Mixed 100 items)",
+            "value": 6370.43,
+            "unit": "ms"
+          },
+          {
+            "name": "Delete (Bulk)",
+            "value": 3120.32,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Single Keyword)",
+            "value": 128.51,
+            "unit": "ms"
+          },
+          {
+            "name": "FtsSearch (Multi Keyword)",
+            "value": 152.23,
             "unit": "ms"
           }
         ]
